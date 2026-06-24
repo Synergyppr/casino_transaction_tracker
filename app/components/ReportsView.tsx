@@ -1,9 +1,11 @@
 "use client";
 
-import { Calendar, Download } from "lucide-react";
-import type { Player } from "../lib/types";
+import { useState, useEffect, useCallback } from "react";
+import { Calendar, Download, Loader2 } from "lucide-react";
+import type { Player, ApiPlayer, ApiDailyReport } from "../lib/types";
 import { TODAY } from "../lib/constants";
 import { getPlayerTotals, getStatus, fmt, fmtDate } from "../lib/utils";
+import { getDailyReport } from "../lib/api";
 import { StatusBadge } from "./StatusBadge";
 import { AmtCell } from "./AmtCell";
 
@@ -11,12 +13,61 @@ export function ReportsView({
   players,
   selectedDate,
   setSelectedDate,
+  apiPlayers,
 }: {
   players: Player[];
   selectedDate: string;
   setSelectedDate: (d: string) => void;
+  apiPlayers: ApiPlayer[];
 }) {
-  const datePlayers = players.filter((p) => p.date === selectedDate);
+  const [reportData, setReportData] = useState<ApiDailyReport | null>(null);
+  const [reportPlayers, setReportPlayers] = useState<Player[]>([]);
+  const [loadingReport, setLoadingReport] = useState(false);
+
+  const fetchReport = useCallback(async (date: string) => {
+    if (date === TODAY) {
+      setReportPlayers(players.filter((p) => p.date === TODAY));
+      setReportData(null);
+      return;
+    }
+    setLoadingReport(true);
+    try {
+      const report = await getDailyReport(date);
+      setReportData(report);
+      if (report && report.playerDetail.length > 0) {
+        const built: Player[] = report.playerDetail.map((pd) => ({
+          id: pd.playerId,
+          name: pd.playerName,
+          date,
+          transactions: pd.transactions?.map((t) => ({
+            id: t.id,
+            direction: t.direction === "outgoing" ? "outgoing" as const : "incoming" as const,
+            category: t.category || "Other",
+            amount: t.amount,
+            timestamp: "",
+            cashierId: t.createdByCashierId || "",
+          })) || [],
+          createdBy: "",
+        }));
+        setReportPlayers(built);
+      } else {
+        setReportPlayers([]);
+      }
+    } catch (err) {
+      console.error("Failed to load report:", err);
+      setReportPlayers([]);
+    } finally {
+      setLoadingReport(false);
+    }
+  }, [players]);
+
+  useEffect(() => {
+    fetchReport(selectedDate);
+  }, [selectedDate, fetchReport]);
+
+  const datePlayers = selectedDate === TODAY
+    ? players.filter((p) => p.date === TODAY)
+    : reportPlayers;
 
   const totals = datePlayers.reduce(
     (acc, p) => {
@@ -48,6 +99,7 @@ export function ReportsView({
             onChange={(e) => setSelectedDate(e.target.value)}
             className="h-9 px-3 bg-secondary border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
           />
+          {loadingReport && <Loader2 size={14} className="animate-spin text-accent" />}
         </div>
         <button className="flex items-center gap-2 px-4 h-9 bg-secondary border border-border rounded-sm text-sm text-muted-foreground hover:text-foreground transition-colors">
           <Download size={12} />
@@ -113,7 +165,7 @@ export function ReportsView({
               {datePlayers.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground text-sm">
-                    No data for this date.
+                    {loadingReport ? "Loading..." : "No data for this date."}
                   </td>
                 </tr>
               ) : (

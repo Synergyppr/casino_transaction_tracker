@@ -19,7 +19,7 @@ export function DashboardView({ players, cashiers }: { players: Player[]; cashie
   const totalIn = players.reduce((s, p) => s + getPlayerTotals(p).incoming, 0);
   const totalOut = players.reduce((s, p) => s + getPlayerTotals(p).outgoing, 0);
   const totalTxns = players.reduce((s, p) => s + p.transactions.length, 0);
-
+console.log("players", players);
   return (
     <div className="p-5 space-y-5">
       {/* Stat cards */}
@@ -131,7 +131,7 @@ export function DashboardView({ players, cashiers }: { players: Player[]; cashie
       {/* Player table */}
       <div>
         <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider mb-3">
-          All Players \u2014 {fmtDate(TODAY)}
+          All Players {fmtDate(TODAY)}
         </p>
         <PlayerTable players={players} cashiers={cashiers} showCashier />
       </div>

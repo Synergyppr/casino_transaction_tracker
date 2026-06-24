@@ -3,30 +3,33 @@
 import { useState } from "react";
 import { Shield } from "lucide-react";
 import type { Cashier } from "../lib/types";
-import { SEED_CASHIERS } from "../lib/constants";
+import { loginCashier } from "../lib/api";
 
 export function LoginScreen({ onLogin }: { onLogin: (c: Cashier) => void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [shaking, setShaking] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  function handleKey(k: string) {
-    if (shaking) return;
+  async function handleKey(k: string) {
+    if (shaking || loading) return;
     if (pin.length >= 4) return;
     const next = pin + k;
     setPin(next);
     setError("");
     if (next.length === 4) {
-      const found = SEED_CASHIERS.find((c) => c.pin === next && c.active);
-      if (found) {
-        setTimeout(() => onLogin(found), 180);
-      } else {
+      setLoading(true);
+      try {
+        const cashier = await loginCashier(next);
+        setTimeout(() => onLogin(cashier), 180);
+      } catch (err) {
         setTimeout(() => {
           setShaking(true);
-          setError("Invalid PIN \u2014 try again");
+          setError(err instanceof Error ? err.message : "Invalid PIN");
           setTimeout(() => {
             setPin("");
             setShaking(false);
+            setLoading(false);
           }, 500);
         }, 200);
       }
@@ -104,21 +107,6 @@ export function LoginScreen({ onLogin }: { onLogin: (c: Cashier) => void }) {
         <p className="text-center text-xs text-muted-foreground mt-7">
           Enter your 4-digit cashier PIN
         </p>
-
-        {/* Demo hint */}
-        <div className="mt-6 bg-secondary/50 border border-border rounded p-3">
-          <p className="text-xs text-muted-foreground mb-1.5 font-mono uppercase tracking-wider">Demo PINs</p>
-          <div className="space-y-1">
-            {SEED_CASHIERS.map((c) => (
-              <div key={c.id} className="flex justify-between text-xs">
-                <span className="text-foreground">{c.name}</span>
-                <span className="font-mono text-muted-foreground">
-                  {c.pin} &middot; <span className="capitalize">{c.role}</span>
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   );

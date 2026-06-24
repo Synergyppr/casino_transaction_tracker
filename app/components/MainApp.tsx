@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import {
   LayoutDashboard,
   Plus,
@@ -10,10 +10,12 @@ import {
   ClipboardList,
   LogOut,
   Shield,
+  Loader2,
 } from "lucide-react";
-import type { Cashier, Player } from "../lib/types";
-import { SEED_CASHIERS, TODAY, getSeedPlayers } from "../lib/constants";
+import type { Cashier, Player, ApiPlayer, Transaction } from "../lib/types";
+import { TODAY } from "../lib/constants";
 import { getPlayerTotals, getStatus, fmtDate } from "../lib/utils";
+import { getAllCashiers, getAllPlayersApi, getDailyReport } from "../lib/api";
 import { DashboardView } from "./DashboardView";
 import { DailyEntryView } from "./DailyEntryView";
 import { MonitoringView } from "./MonitoringView";
@@ -25,10 +27,110 @@ type View = "dashboard" | "entry" | "monitoring" | "reports" | "admin" | "audit"
 
 export function MainApp({ user, onLogout }: { user: Cashier; onLogout: () => void }) {
   const [view, setView] = useState<View>("dashboard");
-  const [players, setPlayers] = useState<Player[]>(getSeedPlayers);
-  const [cashiers, setCashiers] = useState<Cashier[]>(SEED_CASHIERS);
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [cashiers, setCashiers] = useState<Cashier[]>([]);
+  const [apiPlayers, setApiPlayers] = useState<ApiPlayer[]>([]);
   const [selectedDate, setSelectedDate] = useState(TODAY);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  // Track session transactions locally (API doesn't have a list-by-player endpoint yet)
+  const sessionTxnsRef = useRef<Map<string, Transaction[]>>(new Map());
+
+  // Pure data fetch — returns data without setting state
+  const fetchData = useCallback(async () => {
+    const [cashierData, playerData, dailyReport] = await Promise.all([
+      getAllCashiers(),
+      getAllPlayersApi(),
+      getDailyReport(TODAY),
+    ]);
+
+    // Build players: use daily report playerDetail if available, else use session transactions
+    const builtPlayers: Player[] = [];
+
+    if (dailyReport && dailyReport.playerDetail.length > 0) {
+      for (const pd of dailyReport.playerDetail) {
+        const apiP = playerData.find((p) => p.id === pd.playerId);
+        const txns: Transaction[] = pd.transactions?.map((t) => ({
+          id: t.id,
+          direction: t.direction === "outgoing" ? "outgoing" as const : "incoming" as const,
+          category: t.category || "Other",
+          amount: t.amount,
+          timestamp: "",
+          cashierId: t.createdByCashierId || "",
+          playerName: t.playerName,
+          cashierName: t.cashierName,
+        })) || [];
+
+        builtPlayers.push({
+          id: pd.playerId,
+          name: pd.playerName || apiP?.name || "Unknown",
+          date: TODAY,
+          transactions: txns,
+          createdBy: txns[0]?.cashierId || "",
+        });
+      }
+    } else {
+      for (const apiP of playerData) {
+        const pDate = apiP.date ? apiP.date.split("T")[0] : "";
+        const localTxns = sessionTxnsRef.current.get(apiP.id) || [];
+        if (pDate === TODAY || localTxns.length > 0) {
+          builtPlayers.push({
+            id: apiP.id,
+            name: apiP.name || "Unknown",
+            date: TODAY,
+            transactions: localTxns,
+            createdBy: apiP.createdBy || "",
+            gamerNumber: apiP.gamerNumber,
+          });
+        }
+      }
+    }
+
+    return { cashierData, playerData, builtPlayers };
+  }, []);
+
+  // For child components to trigger a refresh
+  const refreshData = useCallback(async () => {
+    try {
+      setError("");
+      const { cashierData, playerData, builtPlayers } = await fetchData();
+      setCashiers(cashierData);
+      setApiPlayers(playerData);
+      setPlayers(builtPlayers);
+    } catch (err) {
+      console.error("Failed to load data:", err);
+      setError(err instanceof Error ? err.message : "Failed to load data");
+    }
+  }, [fetchData]);
+
+  // Initial load — setState in .then() callbacks (React-recommended pattern)
+  useEffect(() => {
+    let active = true;
+    fetchData()
+      .then(({ cashierData, playerData, builtPlayers }) => {
+        if (!active) return;
+        setCashiers(cashierData);
+        setApiPlayers(playerData);
+        setPlayers(builtPlayers);
+      })
+      .catch((err) => {
+        if (!active) return;
+        console.error("Failed to load data:", err);
+        setError(err instanceof Error ? err.message : "Failed to load data");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, [fetchData]);
+
+  // Helper: track a session transaction (players state is already updated by DailyEntryView)
+  const addSessionTransaction = useCallback((playerId: string, txn: Transaction) => {
+    const existing = sessionTxnsRef.current.get(playerId) || [];
+    sessionTxnsRef.current.set(playerId, [...existing, txn]);
+  }, []);
 
   const todayPlayers = useMemo(() => players.filter((p) => p.date === TODAY), [players]);
 
@@ -52,6 +154,17 @@ export function MainApp({ user, onLogout }: { user: Cashier; onLogout: () => voi
   function handleNav(id: View) {
     setView(id);
     setSidebarOpen(false);
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 size={24} className="animate-spin text-accent mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground">Loading data...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -120,7 +233,6 @@ export function MainApp({ user, onLogout }: { user: Cashier; onLogout: () => voi
         {/* Header */}
         <header className="h-12 border-b border-border flex items-center justify-between px-4 sm:px-5 shrink-0 bg-card/50">
           <div className="flex items-center gap-3">
-            {/* Mobile hamburger */}
             <button
               onClick={() => setSidebarOpen(true)}
               className="lg:hidden text-muted-foreground hover:text-foreground"
@@ -144,20 +256,42 @@ export function MainApp({ user, onLogout }: { user: Cashier; onLogout: () => voi
           </div>
         </header>
 
+        {/* Error banner */}
+        {error && (
+          <div className="mx-5 mt-3 p-3 bg-destructive/10 border border-destructive/25 rounded text-xs text-destructive">
+            {error}
+            <button onClick={() => { setError(""); refreshData(); }} className="ml-3 underline">
+              Retry
+            </button>
+          </div>
+        )}
+
         {/* Page */}
-        <div className="flex-1 overflow-auto [scrollbar-width:thin] [scrollbar-color:theme(colors.border)_transparent]">
+        <div className="flex-1 overflow-auto scrollbar-thin [scrollbar-color:var(--color-border)_transparent]">
           {view === "dashboard" && (
             <DashboardView players={todayPlayers} cashiers={cashiers} />
           )}
           {view === "entry" && (
-            <DailyEntryView players={players} setPlayers={setPlayers} user={user} />
+            <DailyEntryView
+              players={players}
+              setPlayers={setPlayers}
+              user={user}
+              apiPlayers={apiPlayers}
+              onDataChange={refreshData}
+              onTransactionCreated={addSessionTransaction}
+            />
           )}
           {view === "monitoring" && <MonitoringView players={todayPlayers} />}
           {view === "reports" && canReports && (
-            <ReportsView players={players} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />
+            <ReportsView
+              players={players}
+              selectedDate={selectedDate}
+              setSelectedDate={setSelectedDate}
+              apiPlayers={apiPlayers}
+            />
           )}
           {view === "admin" && canAdmin && (
-            <AdminView cashiers={cashiers} setCashiers={setCashiers} user={user} />
+            <AdminView cashiers={cashiers} setCashiers={setCashiers} user={user} onDataChange={refreshData} />
           )}
           {view === "audit" && <AuditView players={players} cashiers={cashiers} />}
         </div>

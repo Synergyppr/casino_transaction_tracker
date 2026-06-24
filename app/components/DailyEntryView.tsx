@@ -6,11 +6,14 @@ import {
   AlertTriangle,
   ArrowDownCircle,
   ArrowUpCircle,
+  UserPlus,
   X,
+  Loader2,
 } from "lucide-react";
-import type { Cashier, Direction, Player, Transaction } from "../lib/types";
+import type { Cashier, Direction, Player, Transaction, ApiPlayer } from "../lib/types";
 import { CASH_IN_TYPES, CASH_OUT_TYPES, TODAY } from "../lib/constants";
 import { getPlayerTotals, getStatus, fmt } from "../lib/utils";
+import { createPlayerApi, createTransactionApi, mapApiTransaction } from "../lib/api";
 import { StatusBadge } from "./StatusBadge";
 import { AmtCell } from "./AmtCell";
 import { Modal } from "./Modal";
@@ -27,16 +30,25 @@ export function DailyEntryView({
   players,
   setPlayers,
   user,
+  apiPlayers,
+  onDataChange,
+  onTransactionCreated,
 }: {
   players: Player[];
   setPlayers: React.Dispatch<React.SetStateAction<Player[]>>;
   user: Cashier;
+  apiPlayers: ApiPlayer[];
+  onDataChange: () => Promise<void>;
+  onTransactionCreated: (playerId: string, txn: Transaction) => void;
 }) {
-  const [newName, setNewName] = useState("");
   const [search, setSearch] = useState("");
-  const [dupModal, setDupModal] = useState<{ name: string; matches: Player[] } | null>(null);
+  const [addModal, setAddModal] = useState(false);
+  const [playerDraft, setPlayerDraft] = useState({ firstName: "", lastName: "", gamerNumber: "", phone: "" });
+  const [playerError, setPlayerError] = useState("");
+  const [dupModal, setDupModal] = useState<{ matches: Player[] } | null>(null);
   const [txnModal, setTxnModal] = useState<TxnDraft | null>(null);
   const [txnError, setTxnError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const todayPlayers = players.filter((p) => p.date === TODAY);
   const displayed = search
@@ -44,32 +56,60 @@ export function DailyEntryView({
     : todayPlayers;
 
   function handleAddPlayer() {
-    const name = newName.trim();
-    if (!name) return;
+    const fullName = `${playerDraft.firstName.trim()} ${playerDraft.lastName.trim()}`.trim();
+    if (!fullName) return;
     const matches = todayPlayers.filter(
       (p) =>
-        p.name.toLowerCase().includes(name.slice(0, 5).toLowerCase()) ||
-        name.toLowerCase().includes(p.name.slice(0, 5).toLowerCase())
+        p.name.toLowerCase().includes(fullName.slice(0, 5).toLowerCase()) ||
+        fullName.toLowerCase().includes(p.name.slice(0, 5).toLowerCase())
     );
     if (matches.length > 0) {
-      setDupModal({ name, matches });
+      setDupModal({ matches });
     } else {
-      createPlayer(name);
+      createPlayer();
     }
   }
 
-  function createPlayer(name: string) {
-    const p: Player = {
-      id: `p${Date.now()}`,
-      name,
-      date: TODAY,
-      transactions: [],
-      createdBy: user.id,
-    };
-    setPlayers((prev) => [...prev, p]);
-    setNewName("");
-    setDupModal(null);
-    openTxn(p);
+  async function createPlayer() {
+    setSaving(true);
+    try {
+      const firstName = playerDraft.firstName.trim();
+      const lastName = playerDraft.lastName.trim();
+      const gamerNumber = playerDraft.gamerNumber.trim() || `GMR-${Date.now().toString(36).toUpperCase()}`;
+      const phone = playerDraft.phone.trim() || undefined;
+
+      const apiPlayer = await createPlayerApi({
+        firstName,
+        lastName,
+        gamerNumber,
+        phone,
+        createdBy: user.name,
+      });
+
+      const p: Player = {
+        id: apiPlayer.id,
+        name: apiPlayer.name || `${firstName} ${lastName}`.trim(),
+        date: TODAY,
+        transactions: [],
+        createdBy: user.id,
+        gamerNumber: apiPlayer.gamerNumber,
+      };
+      setPlayers((prev) => [...prev, p]);
+      resetPlayerDraft();
+      setDupModal(null);
+      openTxn(p);
+      onDataChange();
+    } catch (err) {
+      setPlayerError(err instanceof Error ? err.message : "Failed to create player");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function resetPlayerDraft() {
+    setPlayerDraft({ firstName: "", lastName: "", gamerNumber: "", phone: "" });
+    setPlayerError("");
+    setAddModal(false);
   }
 
   function openTxn(p: Player) {
@@ -83,58 +123,54 @@ export function DailyEntryView({
     setTxnError("");
   }
 
-  function submitTxn() {
+  async function submitTxn() {
     if (!txnModal) return;
     const amt = parseFloat(txnModal.amount);
     if (!amt || amt <= 0) {
       setTxnError("Enter a valid positive amount.");
       return;
     }
-    const txn: Transaction = {
-      id: `t${Date.now()}`,
-      direction: txnModal.direction,
-      category: txnModal.category,
-      amount: amt,
-      timestamp: new Date().toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      }),
-      cashierId: user.id,
-    };
-    setPlayers((prev) =>
-      prev.map((p) =>
-        p.id === txnModal.playerId ? { ...p, transactions: [...p.transactions, txn] } : p
-      )
-    );
-    setTxnModal(null);
-    setTxnError("");
+
+    setSaving(true);
+    try {
+      const apiTxn = await createTransactionApi({
+        playerId: txnModal.playerId,
+        createdByCashierId: user.id,
+        direction: txnModal.direction,
+        category: txnModal.category,
+        amount: amt,
+      });
+
+      // Map the API response to our Transaction type
+      const txn = mapApiTransaction(apiTxn);
+
+      // Track in session and update local state
+      onTransactionCreated(txnModal.playerId, txn);
+      setPlayers((prev) =>
+        prev.map((p) =>
+          p.id === txnModal.playerId ? { ...p, transactions: [...p.transactions, txn] } : p
+        )
+      );
+      setTxnModal(null);
+      setTxnError("");
+    } catch (err) {
+      setTxnError(err instanceof Error ? err.message : "Failed to record transaction");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <div className="p-5">
-      {/* Add player bar */}
-      <div className="mb-5 p-4 bg-card border border-border rounded">
-        <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider mb-3">
-          Register Player
-        </p>
-        <div className="flex flex-col sm:flex-row gap-2">
-          <input
-            type="text"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleAddPlayer()}
-            placeholder="Full player name..."
-            className="flex-1 h-9 px-3 bg-secondary border border-border rounded-sm text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
-          />
-          <button
-            onClick={handleAddPlayer}
-            disabled={!newName.trim()}
-            className="px-5 h-9 bg-accent text-white rounded-sm text-sm font-medium hover:bg-accent/85 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            Add Player
-          </button>
-        </div>
+      {/* Add player button */}
+      <div className="mb-5 flex">
+        <button
+          onClick={() => setAddModal(true)}
+          className="flex items-center gap-2 px-4 h-9 bg-accent text-white rounded-sm text-sm font-medium hover:bg-accent/85 transition-colors"
+        >
+          <UserPlus size={13} />
+          Add Player
+        </button>
       </div>
 
       {/* Search + count */}
@@ -221,6 +257,87 @@ export function DailyEntryView({
         </table>
       </div>
 
+      {/* Add player modal */}
+      {addModal && (
+        <Modal onClose={resetPlayerDraft}>
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-sm font-semibold">Register Player</h3>
+            <button onClick={resetPlayerDraft} className="text-muted-foreground hover:text-foreground">
+              <X size={15} />
+            </button>
+          </div>
+          <div className="space-y-4 mb-5">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider">
+                  First Name
+                </label>
+                <input
+                  value={playerDraft.firstName}
+                  onChange={(e) => { setPlayerDraft((p) => ({ ...p, firstName: e.target.value })); setPlayerError(""); }}
+                  placeholder="First name"
+                  disabled={saving}
+                  className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-50"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider">
+                  Last Name
+                </label>
+                <input
+                  value={playerDraft.lastName}
+                  onChange={(e) => { setPlayerDraft((p) => ({ ...p, lastName: e.target.value })); setPlayerError(""); }}
+                  placeholder="Last name"
+                  disabled={saving}
+                  className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-50"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider">
+                Gamer Number (optional)
+              </label>
+              <input
+                value={playerDraft.gamerNumber}
+                onChange={(e) => setPlayerDraft((p) => ({ ...p, gamerNumber: e.target.value }))}
+                placeholder="Auto-generated if empty"
+                disabled={saving}
+                className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-50"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider">
+                Phone (optional)
+              </label>
+              <input
+                value={playerDraft.phone}
+                onChange={(e) => setPlayerDraft((p) => ({ ...p, phone: e.target.value }))}
+                placeholder="(555) 123-4567"
+                disabled={saving}
+                className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-50"
+              />
+            </div>
+            {playerError && <p className="text-xs text-destructive">{playerError}</p>}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleAddPlayer}
+              disabled={!playerDraft.firstName.trim() || !playerDraft.lastName.trim() || saving}
+              className="flex-1 h-9 bg-accent text-white rounded-sm text-sm font-medium hover:bg-accent/85 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {saving && <Loader2 size={13} className="animate-spin" />}
+              Register Player
+            </button>
+            <button
+              onClick={resetPlayerDraft}
+              className="flex-1 h-9 bg-secondary border border-border rounded-sm text-sm text-foreground hover:bg-accent/10 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </Modal>
+      )}
+
       {/* Duplicate modal */}
       {dupModal && (
         <Modal onClose={() => setDupModal(null)}>
@@ -251,15 +368,16 @@ export function DailyEntryView({
               onClick={() => {
                 openTxn(dupModal.matches[0]);
                 setDupModal(null);
-                setNewName("");
+                resetPlayerDraft();
               }}
               className="flex-1 h-9 bg-accent text-white rounded-sm text-sm font-medium hover:bg-accent/85 transition-colors"
             >
               Use Existing Record
             </button>
             <button
-              onClick={() => createPlayer(dupModal.name)}
-              className="flex-1 h-9 bg-secondary border border-border rounded-sm text-sm text-foreground hover:bg-accent/10 transition-colors"
+              onClick={() => createPlayer()}
+              disabled={saving}
+              className="flex-1 h-9 bg-secondary border border-border rounded-sm text-sm text-foreground hover:bg-accent/10 transition-colors disabled:opacity-50"
             >
               Create Separate
             </button>
@@ -361,7 +479,8 @@ export function DailyEntryView({
               }
               onKeyDown={(e) => e.key === "Enter" && submitTxn()}
               placeholder="0"
-              className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
+              disabled={saving}
+              className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-50"
               min="0"
               step="1"
               autoFocus
@@ -372,8 +491,10 @@ export function DailyEntryView({
           <div className="flex gap-2">
             <button
               onClick={submitTxn}
-              className="flex-1 h-9 bg-accent text-white rounded-sm text-sm font-medium hover:bg-accent/85 transition-colors"
+              disabled={saving}
+              className="flex-1 h-9 bg-accent text-white rounded-sm text-sm font-medium hover:bg-accent/85 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
             >
+              {saving && <Loader2 size={13} className="animate-spin" />}
               Record Transaction
             </button>
             <button
