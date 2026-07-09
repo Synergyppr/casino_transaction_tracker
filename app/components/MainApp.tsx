@@ -3,17 +3,15 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import {
   LayoutDashboard,
   Plus,
-  Activity,
   BarChart2,
   Settings,
-  ClipboardList,
   LogOut,
   Shield,
   Loader2,
 } from "lucide-react";
 import type { Cashier, Player, ApiPlayer, Transaction } from "../lib/types";
 import { TODAY } from "../lib/constants";
-import { getPlayerTotals, getStatus, fmtDate } from "../lib/utils";
+import { getPlayerTotals, getStatus } from "../lib/utils";
 import { getAllCashiers, getAllPlayersApi, getDailyReport } from "../lib/api";
 import { DashboardView } from "./DashboardView";
 import { DailyEntryView } from "./DailyEntryView";
@@ -186,14 +184,14 @@ export function MainApp({
   const navItems: { id: View; icon: React.ElementType; label: string }[] = [
     { id: "dashboard", icon: LayoutDashboard, label: "Dashboard" },
     { id: "entry", icon: Plus, label: "Daily Entry" },
-    { id: "monitoring", icon: Activity, label: "Monitoring" },
+    // { id: "monitoring", icon: Activity, label: "Monitoring" },
     ...(canReports
       ? [{ id: "reports" as View, icon: BarChart2, label: "Reports" }]
       : []),
     ...(canAdmin
       ? [{ id: "admin" as View, icon: Settings, label: "Administration" }]
       : []),
-    { id: "audit", icon: ClipboardList, label: "Audit Log" },
+    // { id: "audit", icon: ClipboardList, label: "Audit Log" },
   ];
 
   const monitoringPlayers = useMemo(
@@ -347,22 +345,9 @@ export function MainApp({
           </div>
 
           <div className="flex items-center gap-5">
-            <span className="text-xs text-muted-foreground font-mono hidden sm:block">
-              {fmtDate(selectedDate)}
-            </span>
-
             <div className="flex items-center gap-1.5 text-xs">
-              {selectedDate === TODAY ? (
-                <>
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="text-emerald-400 font-medium">Live</span>
-                </>
-              ) : (
-                <>
-                  <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                  <span className="text-amber-400 font-medium">Historical</span>
-                </>
-              )}
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-emerald-400 font-medium">Live</span>
             </div>
           </div>
         </header>
@@ -420,8 +405,7 @@ export function MainApp({
                   gamerNumber: p.gamerNumber,
                 }))}
               cashiers={cashiers}
-              selectedDate={selectedDate}
-              setSelectedDate={setSelectedDate}
+              selectedDate={TODAY}
             />
           )}
 
@@ -433,7 +417,7 @@ export function MainApp({
               apiPlayers={apiPlayers}
               onDataChange={refreshData}
               onTransactionCreated={addSessionTransaction}
-              selectedDate={selectedDate}
+              selectedDate={TODAY}
             />
           )}
 

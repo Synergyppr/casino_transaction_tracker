@@ -86,7 +86,17 @@ export async function getAllPlayersApi(): Promise<ApiPlayer[]> {
   const res = await post<ApiPlayer[]>("/players/get-all");
   if (res.status !== "200" || !res.data) return [];
 
-  console.log("Fetched players:", res.data);
+  // console.log("Fetched players:", res.data);
+  return res.data;
+}
+
+export async function getPlayerByGamerNumber(
+  gamerNumber: string
+): Promise<ApiPlayer | null> {
+  const res = await post<ApiPlayer>("/players/by-gamer-number", {
+    gamerNumber,
+  });
+  if (res.status !== "200" || !res.data) return null;
   return res.data;
 }
 

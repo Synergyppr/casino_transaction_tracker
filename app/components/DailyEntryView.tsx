@@ -24,6 +24,7 @@ import {
   createTransactionApi,
   updateTransactionApi,
   mapApiTransaction,
+  getPlayerByGamerNumber,
 } from "../lib/api";
 import { StatusBadge } from "./StatusBadge";
 import { AmtCell } from "./AmtCell";
@@ -117,6 +118,8 @@ export function DailyEntryView({
   const [listModal, setListModal] = useState<Player | null>(null);
   const [txnError, setTxnError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [playerLookupLoading, setPlayerLookupLoading] = useState(false);
+  const [playerLookupMessage, setPlayerLookupMessage] = useState("");
 
   const visiblePlayers = useMemo(() => {
     const apiPlayersForDate = apiPlayers
@@ -134,11 +137,84 @@ export function DailyEntryView({
 
   const todayPlayers = visiblePlayers;
 
-  const displayed = search
-    ? todayPlayers.filter((p) =>
-        p.name.toLowerCase().includes(search.toLowerCase())
-      )
+  const normalizedSearch = search.trim().toLowerCase();
+
+  const displayed = normalizedSearch
+    ? todayPlayers.filter((p) => {
+        const normalizedName = (p.name || "").toLowerCase();
+        const [firstName = "", ...lastNameParts] = normalizedName.split(/\s+/);
+        const lastName = lastNameParts.join(" ");
+        const gamerNumber = String(p.gamerNumber || "").toLowerCase();
+
+        return (
+          firstName.includes(normalizedSearch) ||
+          lastName.includes(normalizedSearch) ||
+          normalizedName.includes(normalizedSearch) ||
+          gamerNumber.includes(normalizedSearch)
+        );
+      })
     : todayPlayers;
+
+  function splitPlayerName(fullName?: string) {
+    const cleanName = String(fullName || "").trim();
+
+    if (!cleanName) {
+      return { firstName: "", lastName: "" };
+    }
+
+    const [firstName = "", ...lastNameParts] = cleanName.split(/\s+/);
+
+    return {
+      firstName,
+      lastName: lastNameParts.join(" "),
+    };
+  }
+
+  async function handleGamerNumberLookup() {
+    const gamerNumber = playerDraft.gamerNumber.trim();
+
+    if (!gamerNumber || playerLookupLoading || saving) return;
+
+    setPlayerLookupLoading(true);
+    setPlayerLookupMessage("");
+    setPlayerError("");
+
+    try {
+      const response = await getPlayerByGamerNumber(gamerNumber);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const apiPlayer = (response as { data?: ApiPlayer } | ApiPlayer | any)
+        ?.data
+        ? (response as unknown as { data: ApiPlayer }).data
+        : (response as ApiPlayer);
+
+      if (!apiPlayer?.id) {
+        setPlayerLookupMessage("No player found for this gamer number.");
+        return;
+      }
+
+      const { firstName, lastName } = splitPlayerName(apiPlayer.name);
+
+      setPlayerDraft((prev) => ({
+        ...prev,
+        firstName: firstName || prev.firstName,
+        lastName: lastName || prev.lastName,
+        gamerNumber: apiPlayer.gamerNumber || prev.gamerNumber,
+        phone:
+          "phone" in apiPlayer && apiPlayer.phone
+            ? String(apiPlayer.phone)
+            : prev.phone,
+      }));
+
+      setPlayerLookupMessage("Player details loaded.");
+    } catch (err) {
+      setPlayerLookupMessage("");
+      setPlayerError(
+        err instanceof Error ? err.message : "Failed to load player details"
+      );
+    } finally {
+      setPlayerLookupLoading(false);
+    }
+  }
 
   function handleAddPlayer() {
     const fullName =
@@ -209,6 +285,8 @@ export function DailyEntryView({
       phone: "",
     });
     setPlayerError("");
+    setPlayerLookupMessage("");
+    setPlayerLookupLoading(false);
     setAddModal(false);
   }
 
@@ -332,7 +410,7 @@ export function DailyEntryView({
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search..."
+            placeholder="Search name or gamer #"
             className="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground"
           />
           {search && (
@@ -505,18 +583,53 @@ export function DailyEntryView({
               <label className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider">
                 Gamer Number (optional)
               </label>
-              <input
-                value={playerDraft.gamerNumber}
-                onChange={(e) =>
-                  setPlayerDraft((p) => ({
-                    ...p,
-                    gamerNumber: e.target.value,
-                  }))
-                }
-                placeholder="Auto-generated if empty"
-                disabled={saving}
-                className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-50"
-              />
+              <div className="flex gap-2">
+                <input
+                  value={playerDraft.gamerNumber}
+                  onChange={(e) => {
+                    setPlayerDraft((p) => ({
+                      ...p,
+                      gamerNumber: e.target.value,
+                    }));
+                    setPlayerLookupMessage("");
+                    setPlayerError("");
+                  }}
+                  onBlur={handleGamerNumberLookup}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleGamerNumberLookup();
+                    }
+                  }}
+                  placeholder="Auto-generated if empty"
+                  disabled={saving || playerLookupLoading}
+                  className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-50"
+                />
+
+                <button
+                  type="button"
+                  onClick={handleGamerNumberLookup}
+                  disabled={
+                    saving ||
+                    playerLookupLoading ||
+                    !playerDraft.gamerNumber.trim()
+                  }
+                  className="h-9 px-3 bg-secondary border border-border rounded-sm text-xs text-foreground hover:bg-accent/10 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+                >
+                  {playerLookupLoading ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <Search size={12} />
+                  )}
+                  Lookup
+                </button>
+              </div>
+
+              {playerLookupMessage && (
+                <p className="text-xs text-emerald-400 mt-1.5">
+                  {playerLookupMessage}
+                </p>
+              )}
             </div>
 
             <div>
@@ -524,12 +637,32 @@ export function DailyEntryView({
                 Phone (optional)
               </label>
               <input
-                value={playerDraft.phone}
-                onChange={(e) =>
-                  setPlayerDraft((p) => ({ ...p, phone: e.target.value }))
-                }
-                placeholder="(555) 123-4567"
+                value={(() => {
+                  const digits = playerDraft.phone
+                    .replace(/\D/g, "")
+                    .slice(0, 10);
+
+                  if (digits.length <= 3) return digits;
+                  if (digits.length <= 6)
+                    return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+
+                  return `(${digits.slice(0, 3)}) ${digits.slice(
+                    3,
+                    6
+                  )}-${digits.slice(6)}`;
+                })()}
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+
+                  setPlayerDraft((p) => ({
+                    ...p,
+                    phone: digits,
+                  }));
+                }}
+                placeholder="(787) 888-9890"
                 disabled={saving}
+                inputMode="numeric"
+                autoComplete="tel"
                 className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-50"
               />
             </div>
@@ -909,17 +1042,7 @@ export function DailyEntryView({
                     <FileEditIcon
                       size={10}
                       className="inline text-accent cursor-pointer"
-                    />{" "}
-                    {/* ·{" "}
-                    <LockIcon
-                      size={10}
-                      className="inline text-orange-400 cursor-pointer"
-                    />{" "}
-                    ·{" "}
-                    <CopyIcon
-                      size={10}
-                      className="inline text-purple-400 cursor-pointer"
-                    /> */}
+                    />
                   </button>
                 ))}
               </div>

@@ -1,7 +1,6 @@
 "use client";
-import { AlertTriangle, CalendarDays, CheckCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle } from "lucide-react";
 import type { Player, Cashier } from "../lib/types";
-import { TODAY } from "../lib/constants";
 import { getPlayerTotals, getStatus, fmt, fmtDate } from "../lib/utils";
 import { PlayerTable } from "./PlayerTable";
 
@@ -9,12 +8,10 @@ export function DashboardView({
   players,
   cashiers,
   selectedDate,
-  setSelectedDate,
 }: {
   players: Player[];
   cashiers: Cashier[];
   selectedDate: string;
-  setSelectedDate: (date: string) => void;
 }) {
   const getCashierName = (value?: string) => {
     if (!value) return "—";
@@ -66,10 +63,10 @@ export function DashboardView({
     0
   );
 
-  // const totalOut = visiblePlayers.reduce(
-  //   (s, p) => s + getPlayerTotals(p).outgoing,
-  //   0
-  // );
+  const totalOut = visiblePlayers.reduce(
+    (s, p) => s + getPlayerTotals(p).outgoing,
+    0
+  );
 
   const totalTxns = visiblePlayers.reduce(
     (s, p) => s + (p.transactions?.length || 0),
@@ -78,7 +75,7 @@ export function DashboardView({
 
   return (
     <div className="p-5 space-y-5">
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+      {/* <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>
           <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider">
             Dashboard Date
@@ -106,7 +103,7 @@ export function DashboardView({
             Today
           </button>
         </div>
-      </div>
+      </div> */}
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -122,10 +119,10 @@ export function DashboardView({
             sub: "total logged",
           },
           {
-            label: "Total Cash In",
+            label: "Cash Flow",
             value: fmt(totalIn),
             mono: true,
-            sub: "cash in volume",
+            sub: `IN ${fmt(totalIn)} · OUT ${fmt(totalOut)}`,
           },
           {
             label: "Alerts",

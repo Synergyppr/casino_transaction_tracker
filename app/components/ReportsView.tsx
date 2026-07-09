@@ -6,9 +6,7 @@ import type { Player, ApiPlayer, ApiDailyReport, Cashier } from "../lib/types";
 import { TODAY } from "../lib/constants";
 import { getPlayerTotals, getStatus, fmt, fmtDate } from "../lib/utils";
 import { getDailyReport, getTransactionLogs } from "../lib/api";
-// import { dummyTransactionLogs } from "../lib/dummyData";
 
-// import { StatusBadge } from "./StatusBadge";
 import { Modal } from "./Modal";
 import { exportTransactionsToCsv } from "../helpers/exportCsv";
 
@@ -16,8 +14,8 @@ export type TransactionLog = {
   id: string;
   transactionId: string;
   action: string;
-  oldValuesJson: string;
-  newValuesJson: string;
+  oldValuesJson: unknown;
+  newValuesJson: unknown;
   reason: string;
   changedByCashierId: string;
   createdAtUtc: string;
@@ -39,30 +37,105 @@ export type TransactionRow = {
   time: string;
 };
 
-function safeFormatJson(value: string) {
-  if (!value) return "—";
+type ParsedLogValues = {
+  direction?: "incoming" | "outgoing";
+  amount?: number;
+  category?: string;
+  status?: string;
+  [key: string]: unknown;
+};
 
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2);
-  } catch {
-    return value;
+function safeParseJson(value: unknown): ParsedLogValues {
+  if (value === null || value === undefined || value === "") return {};
+
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return value as ParsedLogValues;
   }
-}
-
-function safeParseJson(value: string) {
-  if (!value) return {};
 
   try {
-    return JSON.parse(value) as {
-      direction?: "incoming" | "outgoing";
-      amount?: number;
-      category?: string;
-      status?: string;
-      [key: string]: unknown;
-    };
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as ParsedLogValues)
+      : {};
   } catch {
     return {};
   }
+}
+
+function normalizeJsonValue(value: unknown): unknown {
+  if (value instanceof Date) return value.toISOString();
+
+  if (Array.isArray(value)) return value.map(normalizeJsonValue);
+
+  if (value && typeof value === "object") {
+    return Object.keys(value as Record<string, unknown>)
+      .sort()
+      .reduce<Record<string, unknown>>((acc, key) => {
+        acc[key] = normalizeJsonValue((value as Record<string, unknown>)[key]);
+        return acc;
+      }, {});
+  }
+
+  return value;
+}
+
+function areJsonValuesEqual(oldValue: unknown, newValue: unknown) {
+  return (
+    JSON.stringify(normalizeJsonValue(oldValue)) ===
+    JSON.stringify(normalizeJsonValue(newValue))
+  );
+}
+
+function getChangedLogValues(oldValuesJson: unknown, newValuesJson: unknown) {
+  const oldValues = safeParseJson(oldValuesJson);
+  const newValues = safeParseJson(newValuesJson);
+  const keys = Array.from(
+    new Set([...Object.keys(oldValues), ...Object.keys(newValues)])
+  );
+
+  return keys.reduce(
+    (acc, key) => {
+      if (!areJsonValuesEqual(oldValues[key], newValues[key])) {
+        if (Object.prototype.hasOwnProperty.call(oldValues, key)) {
+          acc.oldValues[key] = oldValues[key];
+        }
+
+        if (Object.prototype.hasOwnProperty.call(newValues, key)) {
+          acc.newValues[key] = newValues[key];
+        }
+      }
+
+      return acc;
+    },
+    {
+      oldValues: {} as ParsedLogValues,
+      newValues: {} as ParsedLogValues,
+    }
+  );
+}
+
+function formatChangedLogValues(values: ParsedLogValues) {
+  return Object.keys(values).length > 0 ? JSON.stringify(values, null, 2) : "—";
+}
+
+function normalizeTransactionLogsResponse(response: unknown): TransactionLog[] {
+  if (Array.isArray(response)) return response as TransactionLog[];
+
+  if (response && typeof response === "object") {
+    const data = response as {
+      logs?: unknown;
+      data?: unknown;
+      items?: unknown;
+      result?: unknown;
+    };
+
+    if (Array.isArray(data.logs)) return data.logs as TransactionLog[];
+    if (Array.isArray(data.data)) return data.data as TransactionLog[];
+    if (Array.isArray(data.items)) return data.items as TransactionLog[];
+    if (Array.isArray(data.result)) return data.result as TransactionLog[];
+  }
+
+  return [];
 }
 
 function formatLogDateTime(value: string) {
@@ -147,10 +220,11 @@ export function ReportsView({
 }) {
   const [, setReportData] = useState<ApiDailyReport | null>(null);
   const [transactionLogs, setTransactionLogs] = useState<TransactionLog[]>([]);
-  const [reportPlayers, setReportPlayers] = useState<Player[]>([]);
-  const [loadingReport, setLoadingReport] = useState(false);
   const [selectedTransaction, setSelectedTransaction] =
     useState<TransactionRow | null>(null);
+  const [loadingTransactionLogs, setLoadingTransactionLogs] = useState(false);
+  const [reportPlayers, setReportPlayers] = useState<Player[]>([]);
+  const [loadingReport, setLoadingReport] = useState(false);
 
   const fetchReport = useCallback(async (date: string) => {
     if (!date) return;
@@ -211,26 +285,54 @@ export function ReportsView({
     fetchData();
   }, [selectedDate, fetchReport]);
 
+  function openTransactionDetails(transaction: TransactionRow) {
+    setTransactionLogs([]);
+    setLoadingTransactionLogs(true);
+    setSelectedTransaction(transaction);
+  }
+
+  function closeTransactionDetails() {
+    setSelectedTransaction(null);
+    setTransactionLogs([]);
+    setLoadingTransactionLogs(false);
+  }
+
   // Now fetch the transaction logs by transaction ID
   useEffect(() => {
     if (!selectedTransaction) return;
 
+    let cancelled = false;
+
     const fetchLogs = async () => {
       try {
         const logs = await getTransactionLogs(selectedTransaction.id);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        setTransactionLogs(logs as any);
+        const normalizedLogs = normalizeTransactionLogsResponse(logs);
+
+        if (cancelled) return;
+
+        setTransactionLogs(normalizedLogs);
         console.log(
           "Fetched logs for transaction:",
           selectedTransaction.id,
-          logs
+          normalizedLogs
         );
       } catch (err) {
+        if (cancelled) return;
+
         console.error("Failed to fetch transaction logs:", err);
+        setTransactionLogs([]);
+      } finally {
+        if (!cancelled) {
+          setLoadingTransactionLogs(false);
+        }
       }
     };
 
-    fetchLogs();
+    void fetchLogs();
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedTransaction]);
 
   const normalizedApiPlayers = useMemo(
@@ -278,31 +380,27 @@ export function ReportsView({
     [datePlayers]
   );
 
-  useEffect(() => {
-    // console.log("Players:", players);
-    // console.log("API Players:", apiPlayers);
-    console.log("Report Players:", reportPlayers);
-    console.log("Normalized API Players:", normalizedApiPlayers);
-  }, [reportPlayers, normalizedApiPlayers]);
+  // useEffect(() => {
+  //   console.log("Report Players:", reportPlayers);
+  //   console.log("Normalized API Players:", normalizedApiPlayers);
+  // }, [reportPlayers, normalizedApiPlayers]);
 
   const selectedTransactionLogs = useMemo(() => {
     if (!selectedTransaction) return [];
 
     const matchingLogs = (transactionLogs as TransactionLog[])
-      .filter((log) => log.transactionId === selectedTransaction.id)
-      .sort((a, b) => b.createdAtUtc.localeCompare(a.createdAtUtc));
-
-    if (matchingLogs.length > 0) return matchingLogs;
-
-    return (transactionLogs as TransactionLog[])
-      .slice(0, 2)
+      .filter(
+        (log) =>
+          !log.transactionId || log.transactionId === selectedTransaction.id
+      )
       .map((log) => ({
         ...log,
-        transactionId: selectedTransaction.id,
+        transactionId: log.transactionId || selectedTransaction.id,
       }))
       .sort((a, b) => b.createdAtUtc.localeCompare(a.createdAtUtc));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTransaction]);
+
+    return matchingLogs;
+  }, [selectedTransaction, transactionLogs]);
 
   const selectedTransactionTotals = selectedTransaction
     ? {
@@ -499,7 +597,7 @@ export function ReportsView({
 
                     <td className="px-4 py-3 text-right">
                       <button
-                        onClick={() => setSelectedTransaction(t)}
+                        onClick={() => openTransactionDetails(t)}
                         className="inline-flex items-center gap-1.5 rounded-sm border border-border bg-secondary px-2.5 py-1.5 text-xs text-muted-foreground 
                         transition-colors hover:text-foreground hover:bg-accent/10 cursor-pointer"
                       >
@@ -536,7 +634,7 @@ export function ReportsView({
       </div>
 
       {selectedTransaction && (
-        <Modal onClose={() => setSelectedTransaction(null)}>
+        <Modal onClose={closeTransactionDetails}>
           <div className="flex items-center justify-between mb-5">
             <div>
               <h3 className="text-sm font-semibold">Transaction Log Details</h3>
@@ -552,7 +650,7 @@ export function ReportsView({
             </div>
 
             <button
-              onClick={() => setSelectedTransaction(null)}
+              onClick={closeTransactionDetails}
               className="text-muted-foreground hover:text-foreground cursor-pointer"
             >
               <X size={15} />
@@ -589,13 +687,25 @@ export function ReportsView({
           </div>
 
           <div className="space-y-3 max-h-[65vh] overflow-auto pr-1">
-            {selectedTransactionLogs.length === 0 ? (
+            {loadingTransactionLogs ? (
+              <div className="rounded-sm border border-border bg-secondary/30 px-4 py-8 text-center text-sm text-muted-foreground">
+                <Loader2
+                  size={15}
+                  className="mx-auto mb-2 animate-spin text-accent"
+                />
+                Loading transaction logs...
+              </div>
+            ) : selectedTransactionLogs.length === 0 ? (
               <div className="rounded-sm border border-border bg-secondary/30 px-4 py-8 text-center text-sm text-muted-foreground">
                 No logs found for this transaction.
               </div>
             ) : (
               selectedTransactionLogs.map((log) => {
-                const values = safeParseJson(log.newValuesJson);
+                const changedValues = getChangedLogValues(
+                  log.oldValuesJson,
+                  log.newValuesJson
+                );
+                const values = changedValues.newValues;
                 const changedBy =
                   cashiers.find((c) => c.id === log.changedByCashierId)?.name ??
                   log.changedByCashierId ??
@@ -652,7 +762,7 @@ export function ReportsView({
                             Old Values
                           </p>
                           <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-sm bg-secondary/60 border border-border p-2 text-[11px] leading-relaxed text-muted-foreground font-mono">
-                            {safeFormatJson(log.oldValuesJson)}
+                            {formatChangedLogValues(changedValues?.oldValues)}
                           </pre>
                         </div>
 
@@ -661,7 +771,7 @@ export function ReportsView({
                             New Values
                           </p>
                           <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-sm bg-secondary/60 border border-border p-2 text-[11px] leading-relaxed text-muted-foreground font-mono">
-                            {safeFormatJson(log.newValuesJson)}
+                            {formatChangedLogValues(changedValues?.newValues)}
                           </pre>
                         </div>
                       </div>
