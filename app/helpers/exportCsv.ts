@@ -14,11 +14,10 @@ export function exportTransactionsToCsv(
     "Date",
     "Time",
     "Player",
-    "Gamer Number",
+    // "Gamer Number",
     "Direction",
     "Category",
     "Amount",
-    "Cashier",
     "Transaction ID",
   ];
 
@@ -26,11 +25,10 @@ export function exportTransactionsToCsv(
     row.date,
     row.time,
     row.playerName,
-    row.gamerNumber || "",
+    // row.gamerNumber || "",
     row.direction,
     row.category || "Other",
     row.amount,
-    row.cashierName || "Unknown",
     row.id,
   ]);
 

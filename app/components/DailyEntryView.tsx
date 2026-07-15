@@ -9,6 +9,8 @@ import {
   X,
   Loader2,
   FileEditIcon,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import type {
   Cashier,
@@ -29,6 +31,8 @@ import {
 import { StatusBadge } from "./StatusBadge";
 import { AmtCell } from "./AmtCell";
 import { Modal } from "./Modal";
+
+const PLAYERS_PER_PAGE = 15;
 
 interface TxnDraft {
   id?: string;
@@ -95,6 +99,8 @@ export function DailyEntryView({
   onDataChange,
   onTransactionCreated,
   selectedDate,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  logout,
 }: {
   players: Player[];
   setPlayers: React.Dispatch<React.SetStateAction<Player[]>>;
@@ -103,6 +109,7 @@ export function DailyEntryView({
   onDataChange: () => Promise<void>;
   onTransactionCreated: (playerId: string, txn: Transaction) => void;
   selectedDate: string;
+  logout?: () => void;
 }) {
   const [search, setSearch] = useState("");
   const [addModal, setAddModal] = useState(false);
@@ -120,6 +127,11 @@ export function DailyEntryView({
   const [saving, setSaving] = useState(false);
   const [playerLookupLoading, setPlayerLookupLoading] = useState(false);
   const [playerLookupMessage, setPlayerLookupMessage] = useState("");
+  const [cashInCategory, setCashInCategory] = useState(CASH_IN_TYPES[0]);
+  const [cashOutCategory, setCashOutCategory] = useState(CASH_OUT_TYPES[0]);
+  const [customCategory, setCustomCategory] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [amountFocused, setAmountFocused] = useState(false);
 
   const visiblePlayers = useMemo(() => {
     const apiPlayersForDate = apiPlayers
@@ -139,21 +151,68 @@ export function DailyEntryView({
 
   const normalizedSearch = search.trim().toLowerCase();
 
-  const displayed = normalizedSearch
-    ? todayPlayers.filter((p) => {
-        const normalizedName = (p.name || "").toLowerCase();
-        const [firstName = "", ...lastNameParts] = normalizedName.split(/\s+/);
-        const lastName = lastNameParts.join(" ");
-        const gamerNumber = String(p.gamerNumber || "").toLowerCase();
+  const displayed = useMemo(
+    () =>
+      normalizedSearch
+        ? todayPlayers.filter((p) => {
+            const normalizedName = (p.name || "").toLowerCase();
+            const [firstName = "", ...lastNameParts] =
+              normalizedName.split(/\s+/);
+            const lastName = lastNameParts.join(" ");
+            const gamerNumber = String(p.gamerNumber || "").toLowerCase();
 
-        return (
-          firstName.includes(normalizedSearch) ||
-          lastName.includes(normalizedSearch) ||
-          normalizedName.includes(normalizedSearch) ||
-          gamerNumber.includes(normalizedSearch)
-        );
-      })
-    : todayPlayers;
+            return (
+              firstName.includes(normalizedSearch) ||
+              lastName.includes(normalizedSearch) ||
+              normalizedName.includes(normalizedSearch) ||
+              gamerNumber.includes(normalizedSearch)
+            );
+          })
+        : todayPlayers,
+    [todayPlayers, normalizedSearch]
+  );
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(displayed.length / PLAYERS_PER_PAGE)
+  );
+
+  const safeCurrentPage = Math.min(Math.max(currentPage, 1), totalPages);
+
+  const paginatedPlayers = useMemo(() => {
+    const startIndex = (safeCurrentPage - 1) * PLAYERS_PER_PAGE;
+
+    return displayed.slice(startIndex, startIndex + PLAYERS_PER_PAGE);
+  }, [displayed, safeCurrentPage]);
+
+  const firstVisiblePlayer =
+    displayed.length > 0 ? (safeCurrentPage - 1) * PLAYERS_PER_PAGE + 1 : 0;
+
+  const lastVisiblePlayer = Math.min(
+    safeCurrentPage * PLAYERS_PER_PAGE,
+    displayed.length
+  );
+
+  function handleSearchChange(value: string) {
+    setSearch(value);
+    setCurrentPage(1);
+  }
+
+  function handlePreviousPage() {
+    setCurrentPage((page) => {
+      const normalizedPage = Math.min(Math.max(page, 1), totalPages);
+
+      return Math.max(1, normalizedPage - 1);
+    });
+  }
+
+  function handleNextPage() {
+    setCurrentPage((page) => {
+      const normalizedPage = Math.min(Math.max(page, 1), totalPages);
+
+      return Math.min(totalPages, normalizedPage + 1);
+    });
+  }
 
   function splitPlayerName(fullName?: string) {
     const cleanName = String(fullName || "").trim();
@@ -291,27 +350,62 @@ export function DailyEntryView({
   }
 
   function openTxn(p: Player, txn?: Transaction) {
+    const direction = txn?.direction || "incoming";
+    const category =
+      txn?.category ||
+      (direction === "incoming" ? cashInCategory : cashOutCategory);
+
+    if (txn?.category) {
+      if (direction === "incoming") {
+        setCashInCategory(txn.category);
+      } else {
+        setCashOutCategory(txn.category);
+      }
+    }
+
     setTxnModal({
       id: txn?.id,
       mode: txn ? "update" : "create",
       playerId: p.id,
       playerName: p.name,
-      direction: txn?.direction || "incoming",
-      category: txn?.category || CASH_IN_TYPES[0],
+      direction,
+      category,
       amount: txn?.amount ? String(txn.amount) : "",
     });
     setTxnError("");
   }
 
-  async function submitTxn() {
-    if (!txnModal) return;
+  const validate = () => {
+    if (!txnModal) return false;
 
     const amt = parseFloat(txnModal.amount);
 
     if (!amt || amt <= 0) {
       setTxnError("Enter a valid positive amount.");
-      return;
+      return false;
     }
+
+    // Require notes and reason if updating
+    if (txnModal.mode === "update") {
+      if (!txnModal.notes?.trim()) {
+        setTxnError("Please provide notes for the update.");
+        return false;
+      }
+
+      if (!txnModal.reason?.trim()) {
+        setTxnError("Please provide a reason for the update.");
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  async function submitTxn() {
+    const amt = parseFloat(txnModal?.amount as string);
+
+    validate();
+    if (validate() === false || !txnModal) return;
 
     setSaving(true);
 
@@ -321,11 +415,13 @@ export function DailyEntryView({
           id: txnModal.id,
           updatedByCashierId: user.id,
           direction: txnModal.direction,
-          category: txnModal.category,
+          category: txnModal?.category?.includes("Other")
+            ? customCategory || txnModal.category
+            : txnModal.category,
           amount: amt,
           status: "updated",
-          notes: "Updated by cashier",
-          reason: "Updated by cashier",
+          notes: txnModal.notes || "",
+          reason: txnModal.reason || "",
         });
 
         setPlayers((prev) =>
@@ -409,13 +505,13 @@ export function DailyEntryView({
           <Search size={12} className="text-muted-foreground shrink-0" />
           <input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             placeholder="Search name or gamer #"
             className="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground"
           />
           {search && (
             <button
-              onClick={() => setSearch("")}
+              onClick={() => handleSearchChange("")}
               className="text-muted-foreground hover:text-foreground"
             >
               <X size={12} />
@@ -458,72 +554,106 @@ export function DailyEntryView({
                 </td>
               </tr>
             ) : (
-              displayed.map((p, i) => {
+              paginatedPlayers.map((p, i) => {
                 const { incoming, outgoing } = getPlayerTotals(p);
                 const status = getStatus(incoming, outgoing);
 
                 return (
-                  <>
-                    <tr
-                      key={p.id}
-                      className={`border-b border-border last:border-0 ${
-                        status === "compliance"
-                          ? "bg-emerald-500/5"
-                          : status === "warning"
-                          ? "bg-amber-500/5"
-                          : i % 2 === 1
-                          ? "bg-secondary/20"
-                          : ""
-                      }`}
-                    >
-                      <td className="px-4 py-3">
-                        <p className="font-semibold">{p.name}</p>
-                        {p.gamerNumber && (
-                          <p className="text-[11px] text-muted-foreground font-mono mt-0.5">
-                            {p.gamerNumber}
-                          </p>
-                        )}
-                      </td>
+                  <tr
+                    key={p.id}
+                    className={`border-b border-border last:border-0 ${
+                      status === "compliance"
+                        ? "bg-emerald-500/5"
+                        : status === "warning"
+                        ? "bg-amber-500/5"
+                        : ((safeCurrentPage - 1) * PLAYERS_PER_PAGE + i) % 2 ===
+                          1
+                        ? "bg-secondary/20"
+                        : ""
+                    }`}
+                  >
+                    <td className="px-4 py-3">
+                      <p className="font-semibold">{p.name}</p>
+                      {p.gamerNumber && (
+                        <p className="text-[11px] text-muted-foreground font-mono mt-0.5">
+                          {p.gamerNumber}
+                        </p>
+                      )}
+                    </td>
 
-                      <td className="px-4 py-3 text-right">
-                        <AmtCell amount={incoming} />
-                      </td>
+                    <td className="px-4 py-3 text-right">
+                      <AmtCell amount={incoming} />
+                    </td>
 
-                      <td className="px-4 py-3 text-right">
-                        <AmtCell amount={outgoing} />
-                      </td>
+                    <td className="px-4 py-3 text-right">
+                      <AmtCell amount={outgoing} />
+                    </td>
 
-                      <td className="px-4 py-3 text-center">
-                        <StatusBadge status={status} />
-                      </td>
+                    <td className="px-4 py-3 text-center">
+                      <StatusBadge status={status} />
+                    </td>
 
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex justify-end gap-2">
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => openTxn(p)}
+                          className="px-3 py-1 text-xs bg-secondary hover:bg-accent/20 border border-border rounded-sm transition-colors text-foreground"
+                        >
+                          + Transaction
+                        </button>
+
+                        {p.transactions.length > 0 && (
                           <button
-                            onClick={() => openTxn(p)}
+                            onClick={() => setListModal(p)}
                             className="px-3 py-1 text-xs bg-secondary hover:bg-accent/20 border border-border rounded-sm transition-colors text-foreground"
                           >
-                            + Transaction
+                            Transactions
                           </button>
-
-                          {p.transactions.length > 0 && (
-                            <button
-                              onClick={() => setListModal(p)}
-                              className="px-3 py-1 text-xs bg-secondary hover:bg-accent/20 border border-border rounded-sm transition-colors text-foreground"
-                            >
-                              Transactions
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
                 );
               })
             )}
           </tbody>
         </table>
       </div>
+
+      {displayed.length > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-x border-b border-border rounded-b bg-card px-4 py-3">
+          <p className="text-xs text-muted-foreground">
+            Showing {firstVisiblePlayer}–{lastVisiblePlayer} of{" "}
+            {displayed.length} players
+          </p>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handlePreviousPage}
+              disabled={safeCurrentPage === 1}
+              className="inline-flex h-8 items-center gap-1 rounded-sm border border-border bg-secondary px-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+            >
+              <ChevronLeft size={13} />
+              Previous
+            </button>
+
+            <span className="min-w-20 text-center text-xs text-muted-foreground font-mono">
+              Page {safeCurrentPage} of {totalPages}
+            </span>
+
+            <button
+              type="button"
+              onClick={handleNextPage}
+              disabled={safeCurrentPage === totalPages}
+              className="inline-flex h-8 items-center gap-1 rounded-sm border border-border bg-secondary px-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+            >
+              Next
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Add player modal */}
       {addModal && (
@@ -683,7 +813,7 @@ export function DailyEntryView({
               className="flex-1 h-9 bg-accent text-white rounded-sm text-sm font-medium hover:bg-accent/85 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {saving && <Loader2 size={13} className="animate-spin" />}
-              Register Player
+              {playerLookupMessage ? "Record Transaction" : "Register Player"}
             </button>
 
             <button
@@ -815,8 +945,8 @@ export function DailyEntryView({
                             direction: dir,
                             category:
                               dir === "incoming"
-                                ? CASH_IN_TYPES[0]
-                                : CASH_OUT_TYPES[0],
+                                ? cashInCategory
+                                : cashOutCategory,
                           }
                         : prev
                     )
@@ -848,11 +978,19 @@ export function DailyEntryView({
 
             <select
               value={txnModal.category}
-              onChange={(e) =>
+              onChange={(e) => {
+                const nextCategory = e.target.value;
+
+                if (txnModal.direction === "incoming") {
+                  setCashInCategory(nextCategory);
+                } else {
+                  setCashOutCategory(nextCategory);
+                }
+
                 setTxnModal((prev) =>
-                  prev ? { ...prev, category: e.target.value } : prev
-                )
-              }
+                  prev ? { ...prev, category: nextCategory } : prev
+                );
+              }}
               className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
             >
               {(txnModal.direction === "incoming"
@@ -864,30 +1002,127 @@ export function DailyEntryView({
                 </option>
               ))}
             </select>
+
+            {txnModal?.category?.includes("Other") && (
+              <input
+                type="text"
+                value={customCategory}
+                onChange={(e) => setCustomCategory(e.target.value)}
+                placeholder="Specify category..."
+                disabled={saving}
+                className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-50 mt-2"
+              />
+            )}
           </div>
 
           {/* Amount */}
+          {/* Amount */}
           <div className="mb-5">
-            <label className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider">
+            <label
+              htmlFor="currency"
+              className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider"
+            >
               Amount (USD)
             </label>
 
-            <input
-              type="number"
-              value={txnModal.amount}
-              onChange={(e) =>
-                setTxnModal((prev) =>
-                  prev ? { ...prev, amount: e.target.value } : prev
-                )
-              }
-              onKeyDown={(e) => e.key === "Enter" && submitTxn()}
-              placeholder="0"
-              disabled={saving}
-              className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-50"
-              min="0"
-              step="1"
-              autoFocus
-            />
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-mono text-muted-foreground">
+                $
+              </span>
+
+              <input
+                type="text"
+                id="currency"
+                name="amount"
+                inputMode="decimal"
+                autoComplete="off"
+                placeholder="0.00"
+                value={
+                  amountFocused
+                    ? txnModal.amount
+                    : txnModal.amount
+                    ? Number(txnModal.amount).toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })
+                    : ""
+                }
+                onFocus={(e) => {
+                  setAmountFocused(true);
+
+                  requestAnimationFrame(() => {
+                    e.target.select();
+                  });
+                }}
+                onBlur={() => {
+                  setAmountFocused(false);
+
+                  const amount = Number(txnModal.amount);
+
+                  if (!Number.isFinite(amount) || amount <= 0) return;
+
+                  setTxnModal((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          amount: Math.min(amount, 1000000).toFixed(2),
+                        }
+                      : prev
+                  );
+                }}
+                onChange={(e) => {
+                  let value = e.target.value
+                    .replace(/[$,\s]/g, "")
+                    .replace(/[^\d.]/g, "");
+
+                  const decimalIndex = value.indexOf(".");
+
+                  if (decimalIndex !== -1) {
+                    value =
+                      value.slice(0, decimalIndex + 1) +
+                      value
+                        .slice(decimalIndex + 1)
+                        .replace(/\./g, "")
+                        .slice(0, 2);
+                  }
+
+                  if (value.startsWith(".")) {
+                    value = `0${value}`;
+                  }
+
+                  const numericValue = Number(value);
+
+                  if (
+                    value !== "" &&
+                    value !== "0." &&
+                    Number.isFinite(numericValue) &&
+                    numericValue > 1000000
+                  ) {
+                    value = "1000000";
+                  }
+
+                  setTxnModal((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          amount: value,
+                        }
+                      : prev
+                  );
+
+                  setTxnError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    submitTxn();
+                  }
+                }}
+                disabled={saving}
+                className="w-full h-9 pl-8 pr-3 bg-secondary border border-border rounded-sm text-sm font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-50"
+                autoFocus
+              />
+            </div>
 
             {txnError && (
               <p className="text-xs text-destructive mt-1.5">{txnError}</p>
@@ -905,7 +1140,7 @@ export function DailyEntryView({
                   const amount = Number(txnModal.amount) || 0;
 
                   const status =
-                    amount >= 10000
+                    amount >= 1000000
                       ? {
                           label: "COMPLIANCE REQ.",
                           className:

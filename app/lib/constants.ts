@@ -39,7 +39,16 @@ export const SEED_CASHIERS: Cashier[] = [
   { id: "c5", name: "Sandra Vega", pin: "1111", role: "manager", active: true },
 ];
 
-export const TODAY = new Date().toISOString().split("T")[0];
+export const TODAY = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Puerto_Rico",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+}).format(new Date());
+
+export const START_OF_TODAY = `${TODAY}T00:00:00`;
+
+export const END_OF_TODAY = `${TODAY}T23:59:59.999`;
 
 export function getSeedPlayers(): Player[] {
   return [

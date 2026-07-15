@@ -1,9 +1,26 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Calendar, Download, Loader2, Eye, X } from "lucide-react";
+import {
+  Calendar,
+  Download,
+  Loader2,
+  Eye,
+  X,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  FilterX,
+} from "lucide-react";
 
 import type { Player, ApiPlayer, ApiDailyReport, Cashier } from "../lib/types";
-import { TODAY } from "../lib/constants";
+import {
+  COMPLIANCE_THRESHOLD,
+  TODAY,
+  WARNING_THRESHOLD,
+} from "../lib/constants";
 import { getPlayerTotals, getStatus, fmt, fmtDate } from "../lib/utils";
 import { getDailyReport, getTransactionLogs } from "../lib/api";
 
@@ -36,6 +53,11 @@ export type TransactionRow = {
   date: string;
   time: string;
 };
+
+type SortKey = "dateTime" | "player" | "direction" | "category" | "amount";
+type SortDirection = "asc" | "desc";
+type DirectionFilter = "all" | "incoming" | "outgoing";
+type AlertFilter = "all" | "normal" | "warning" | "compliance";
 
 type ParsedLogValues = {
   direction?: "incoming" | "outgoing";
@@ -154,25 +176,115 @@ function formatLogDateTime(value: string) {
   });
 }
 
+const formatDateOnly = (date?: string) => {
+  if (!date) return "";
+
+  const [year, month, day] = date.split("-").map(Number);
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+    timeZone: "UTC",
+  })
+    .format(new Date(Date.UTC(year, month - 1, day)))
+    .replace(",", "");
+};
+
 function getDateOnly(value?: string) {
   if (!value) return "";
-  return value.includes("T") ? value.split("T")[0] : value;
+
+  const normalized = String(value).trim();
+
+  // ISO/API date: 2026-07-14 or 2026-07-14T00:00:00
+  const isoMatch = normalized.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+  }
+
+  // API display date: 07/14/2026 10:57 PM
+  const usMatch = normalized.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (usMatch) {
+    const [, month, day, year] = usMatch;
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+
+  return normalized;
 }
 
 function getTimeOnly(value?: string) {
   if (!value) return "—";
 
-  const date = new Date(value);
+  const normalized = String(value).trim();
 
-  if (Number.isNaN(date.getTime())) return "—";
+  // Preserve the exact local/business time supplied by the API instead of
+  // letting Date reinterpret a timezone-less value.
+  const twelveHourMatch = normalized.match(
+    /(?:^|\s)(\d{1,2}):(\d{2})(?:\s*)(AM|PM)$/i
+  );
 
-  return date.toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  if (twelveHourMatch) {
+    const [, hour, minute, period] = twelveHourMatch;
+    return `${hour.padStart(2, "0")}:${minute} ${period.toUpperCase()}`;
+  }
+
+  const twentyFourHourMatch = normalized.match(/(?:T|\s)(\d{2}):(\d{2})/);
+  if (twentyFourHourMatch) {
+    const hour24 = Number(twentyFourHourMatch[1]);
+    const minute = twentyFourHourMatch[2];
+    const period = hour24 >= 12 ? "PM" : "AM";
+    const hour12 = hour24 % 12 || 12;
+
+    return `${String(hour12).padStart(2, "0")}:${minute} ${period}`;
+  }
+
+  return "—";
+}
+
+function getSortableDateTime(dateValue?: string, timeValue?: string) {
+  const date = getDateOnly(dateValue);
+
+  if (!date) return 0;
+
+  const dateMatch = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (!dateMatch) return 0;
+
+  const [, year, month, day] = dateMatch;
+  const normalizedTime = String(timeValue || "").trim();
+
+  let hour24 = 0;
+  let minute = 0;
+
+  const twelveHourMatch = normalizedTime.match(
+    /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i
+  );
+
+  if (twelveHourMatch) {
+    const hour12 = Number(twelveHourMatch[1]);
+    minute = Number(twelveHourMatch[2]);
+    const period = twelveHourMatch[3].toUpperCase();
+
+    hour24 = hour12 % 12;
+
+    if (period == "PM") {
+      hour24 += 12;
+    }
+  } else {
+    const twentyFourHourMatch = normalizedTime.match(/^(\d{1,2}):(\d{2})/);
+
+    if (twentyFourHourMatch) {
+      hour24 = Number(twentyFourHourMatch[1]);
+      minute = Number(twentyFourHourMatch[2]);
+    }
+  }
+
+  return Date.UTC(Number(year), Number(month) - 1, Number(day), hour24, minute);
 }
 
 function normalizeApiPlayerToPlayer(apiPlayer: ApiPlayer): Player {
+  // console.log("Normalizing API player:", apiPlayer);
+
   return {
     id: apiPlayer.id,
     name: apiPlayer.name || "Unknown",
@@ -200,22 +312,27 @@ function normalizeApiPlayerToPlayer(apiPlayer: ApiPlayer): Player {
           timestamp: tx.timestamp || tx.createdAtUtc || apiPlayer.date || "",
           cashierId: tx.cashierId || tx.createdByCashierId || "",
           cashierName: tx.cashierName,
+          // gamerNumber: apiPlayer.gamerNumber,
         };
       }) || [],
   };
 }
 
 export function ReportsView({
-  // players,
   selectedDate,
-  setSelectedDate,
   apiPlayers,
+  startDate,
+  endDate,
+  setStartDate,
+  setEndDate,
   cashiers = [],
 }: {
-  players: Player[];
   selectedDate: string;
-  setSelectedDate: (d: string) => void;
   apiPlayers: ApiPlayer[];
+  startDate: string;
+  endDate: string;
+  setStartDate: (d: string) => void;
+  setEndDate: (d: string) => void;
   cashiers?: Cashier[];
 }) {
   const [, setReportData] = useState<ApiDailyReport | null>(null);
@@ -225,45 +342,93 @@ export function ReportsView({
   const [loadingTransactionLogs, setLoadingTransactionLogs] = useState(false);
   const [reportPlayers, setReportPlayers] = useState<Player[]>([]);
   const [loadingReport, setLoadingReport] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("dateTime");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [directionFilter, setDirectionFilter] =
+    useState<DirectionFilter>("all");
+  const [alertFilter, setAlertFilter] = useState<AlertFilter>("all");
 
-  const fetchReport = useCallback(async (date: string) => {
-    if (!date) return;
-
+  const fetchReport = useCallback(async () => {
     setLoadingReport(true);
 
     try {
-      const report = await getDailyReport(date);
+      const report = await getDailyReport(
+        `${startDate}T00:00:00`,
+        `${endDate}T23:59:59.999`
+      );
       setReportData(report);
 
-      if (report && report.playerDetail.length > 0) {
-        const built: Player[] = report.playerDetail.map((pd) => ({
-          id: pd.playerId,
-          name: pd.playerName,
-          date,
-          transactions:
-            pd.transactions?.map((t) => {
-              const tx = t as typeof t & {
+      const playerDetail = Array.isArray(report?.playerDetail)
+        ? report.playerDetail
+        : [];
+
+      if (playerDetail.length > 0) {
+        const built: Player[] = playerDetail.map((pd) => {
+          const detail = pd as typeof pd & {
+            player?: string;
+            playerName?: string;
+          };
+
+          const firstTransaction = detail.transactions?.find((transaction) => {
+            const candidate = transaction as typeof transaction & {
+              date?: string;
+              timestamp?: string;
+              createdAtUtc?: string;
+            };
+
+            return Boolean(
+              candidate.date || candidate.timestamp || candidate.createdAtUtc
+            );
+          }) as
+            | ((typeof detail.transactions)[number] & {
+                date?: string;
                 timestamp?: string;
                 createdAtUtc?: string;
-                createdByCashierId?: string;
-                cashierName?: string;
-              };
+              })
+            | undefined;
 
-              return {
-                id: tx.id,
-                direction:
-                  tx.direction === "outgoing"
-                    ? ("outgoing" as const)
-                    : ("incoming" as const),
-                category: tx.category || "Other",
-                amount: Number(tx.amount) || 0,
-                timestamp: tx.timestamp || tx.createdAtUtc || "",
-                cashierId: tx.createdByCashierId || "",
-                cashierName: tx.cashierName,
-              };
-            }) || [],
-          createdBy: "",
-        }));
+          const firstTransactionDate = getDateOnly(
+            firstTransaction?.date ||
+              firstTransaction?.timestamp ||
+              firstTransaction?.createdAtUtc
+          );
+
+          return {
+            id: detail.playerId,
+            // gamerNumber: playerDetail?.gamerNumber,
+            name: detail.playerName || detail.player || "Unknown",
+            date: firstTransactionDate,
+            transactions:
+              detail.transactions?.map((t) => {
+                const tx = t as typeof t & {
+                  date?: string;
+                  timestamp?: string;
+                  createdAtUtc?: string;
+                  createdByCashierId?: string;
+                  cashierName?: string;
+                };
+
+                return {
+                  id: tx.id,
+                  direction:
+                    tx.direction === "outgoing"
+                      ? ("outgoing" as const)
+                      : ("incoming" as const),
+                  date: getDateOnly(tx.date || tx.timestamp || tx.createdAtUtc),
+                  category: tx.category || "Other",
+                  amount: Number(tx.amount) || 0,
+                  timestamp: tx.date || tx.timestamp || tx.createdAtUtc || "",
+                  cashierId: tx.createdByCashierId || "",
+                  cashierName: tx.cashierName,
+                };
+              }) || [],
+            createdBy: "",
+          };
+        });
 
         setReportPlayers(built);
       } else {
@@ -275,15 +440,15 @@ export function ReportsView({
     } finally {
       setLoadingReport(false);
     }
-  }, []);
+  }, [startDate, endDate]);
 
   useEffect(() => {
     const fetchData = async () => {
-      await fetchReport(selectedDate);
+      await fetchReport();
     };
 
     fetchData();
-  }, [selectedDate, fetchReport]);
+  }, [fetchReport]);
 
   function openTransactionDetails(transaction: TransactionRow) {
     setTransactionLogs([]);
@@ -360,30 +525,211 @@ export function ReportsView({
     () =>
       datePlayers
         .flatMap((p) =>
-          (p.transactions || []).map((t) => ({
-            ...t,
-            player: p,
-            playerId: p.id,
-            playerName: p.name,
-            gamerNumber: p.gamerNumber,
-            date: getDateOnly(p.date),
-            time: getTimeOnly(t.timestamp || p.date),
-            cashierName:
-              "cashierName" in t && t.cashierName
-                ? String(t.cashierName)
-                : p.createdBy || "Unknown",
-          }))
+          (p.transactions || []).map((t) => {
+            const transaction = t as typeof t & {
+              date?: string;
+              timestamp?: string;
+              createdAtUtc?: string;
+            };
+
+            const transactionDateTime =
+              transaction.timestamp ||
+              transaction.createdAtUtc ||
+              transaction.date ||
+              p.date;
+
+            return {
+              ...t,
+              player: p,
+              playerId: p.id,
+              playerName: p.name,
+              gamerNumber: p.gamerNumber,
+              date: getDateOnly(
+                transaction.date || transactionDateTime || p.date
+              ),
+              time: getTimeOnly(transactionDateTime),
+              cashierName:
+                "cashierName" in t && t.cashierName
+                  ? String(t.cashierName)
+                  : p.createdBy || "Unknown",
+            };
+          })
         )
-        .sort((a, b) =>
-          `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`)
+        .sort(
+          (a, b) =>
+            getSortableDateTime(b.date, b.time) -
+            getSortableDateTime(a.date, a.time)
         ),
     [datePlayers]
   );
 
-  // useEffect(() => {
-  //   console.log("Report Players:", reportPlayers);
-  //   console.log("Normalized API Players:", normalizedApiPlayers);
-  // }, [reportPlayers, normalizedApiPlayers]);
+  const categoryOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          transactionRows.map((transaction) => transaction.category || "Other")
+        )
+      ).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })),
+    [transactionRows]
+  );
+
+  const filteredTransactionRows = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+
+    return transactionRows.filter((transaction) => {
+      const transactionAmount = Number(transaction.amount) || 0;
+
+      const transactionAlertStatus: Exclude<AlertFilter, "all"> =
+        transactionAmount >= COMPLIANCE_THRESHOLD
+          ? "compliance"
+          : transactionAmount >= WARNING_THRESHOLD
+          ? "warning"
+          : "normal";
+
+      const matchesSearch =
+        !query ||
+        [
+          transaction.id,
+          transaction.playerName,
+          transaction.gamerNumber,
+          transaction.direction,
+          transaction.direction === "incoming" ? "in" : "out",
+          transaction.category,
+          transactionAmount,
+          transaction.date,
+          formatDateOnly(transaction.date),
+          transaction.time,
+          transaction.cashierName,
+          transactionAlertStatus,
+        ].some((value) =>
+          String(value ?? "")
+            .toLowerCase()
+            .includes(query)
+        );
+
+      const matchesCategory =
+        categoryFilter === "all" ||
+        (transaction.category || "Other") === categoryFilter;
+
+      const matchesDirection =
+        directionFilter === "all" || transaction.direction === directionFilter;
+
+      const matchesAlert =
+        alertFilter === "all" || transactionAlertStatus === alertFilter;
+
+      return (
+        matchesSearch && matchesCategory && matchesDirection && matchesAlert
+      );
+    });
+  }, [
+    transactionRows,
+    searchQuery,
+    categoryFilter,
+    directionFilter,
+    alertFilter,
+  ]);
+
+  const hasActiveFilters =
+    Boolean(searchQuery.trim()) ||
+    categoryFilter !== "all" ||
+    directionFilter !== "all" ||
+    alertFilter !== "all";
+
+  function clearAdvancedFilters() {
+    setSearchQuery("");
+    setCategoryFilter("all");
+    setDirectionFilter("all");
+    setAlertFilter("all");
+    setCurrentPage(1);
+  }
+
+  const sortedTransactionRows = useMemo(() => {
+    const rows = [...filteredTransactionRows];
+
+    rows.sort((a, b) => {
+      let comparison = 0;
+
+      switch (sortKey) {
+        case "player":
+          comparison = a.playerName.localeCompare(b.playerName, undefined, {
+            sensitivity: "base",
+          });
+          break;
+
+        case "direction":
+          comparison = a.direction.localeCompare(b.direction);
+          break;
+
+        case "category":
+          comparison = (a.category || "Other").localeCompare(
+            b.category || "Other",
+            undefined,
+            {
+              sensitivity: "base",
+            }
+          );
+          break;
+
+        case "amount":
+          comparison = (Number(a.amount) || 0) - (Number(b.amount) || 0);
+          break;
+
+        case "dateTime":
+        default:
+          comparison =
+            getSortableDateTime(a.date, a.time) -
+            getSortableDateTime(b.date, b.time);
+          break;
+      }
+
+      return sortDirection === "asc" ? comparison : -comparison;
+    });
+
+    return rows;
+  }, [filteredTransactionRows, sortKey, sortDirection]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(sortedTransactionRows.length / pageSize)
+  );
+
+  /*
+   * Do not update currentPage inside an effect.
+   *
+   * currentPage may temporarily be greater than totalPages after filtering.
+   * safeCurrentPage derives a valid page without causing another render.
+   */
+  const safeCurrentPage = Math.min(Math.max(currentPage, 1), totalPages);
+
+  const paginatedTransactionRows = useMemo(() => {
+    const startIndex = (safeCurrentPage - 1) * pageSize;
+
+    return sortedTransactionRows.slice(startIndex, startIndex + pageSize);
+  }, [sortedTransactionRows, safeCurrentPage, pageSize]);
+
+  function handleSort(key: SortKey) {
+    setCurrentPage(1);
+
+    if (sortKey === key) {
+      setSortDirection((current) => (current === "asc" ? "desc" : "asc"));
+      return;
+    }
+
+    setSortKey(key);
+    setSortDirection(key === "dateTime" ? "desc" : "asc");
+  }
+
+  function renderSortIcon(key: SortKey) {
+    if (sortKey !== key) {
+      return <ArrowUpDown size={12} className="opacity-50" />;
+    }
+
+    return sortDirection === "asc" ? (
+      <ArrowUp size={12} />
+    ) : (
+      <ArrowDown size={12} />
+    );
+  }
 
   const selectedTransactionLogs = useMemo(() => {
     if (!selectedTransaction) return [];
@@ -434,16 +780,30 @@ export function ReportsView({
   }).length;
 
   return (
-    <div className="p-5 space-y-5">
+    <div className="p-5 space-y-5 overflow-auto">
       {/* Controls */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
         <div className="flex items-center gap-2">
           <Calendar size={13} className="text-muted-foreground" />
           <input
             type="date"
-            value={selectedDate}
+            value={startDate}
             max={TODAY}
-            onChange={(e) => setSelectedDate(e.target.value)}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="h-9 px-3 bg-secondary border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
+          />
+          {loadingReport && (
+            <Loader2 size={14} className="animate-spin text-accent" />
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Calendar size={13} className="text-muted-foreground" />
+          <input
+            type="date"
+            value={endDate}
+            max={TODAY}
+            onChange={(e) => setEndDate(e.target.value)}
             className="h-9 px-3 bg-secondary border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
           />
           {loadingReport && (
@@ -506,32 +866,161 @@ export function ReportsView({
 
       {/* Detail table */}
       <div>
-        <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider mb-3">
-          Transaction Detail
-        </p>
+        <div className="mb-3 space-y-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider">
+              Transaction Detail
+            </p>
+
+            <div className="relative w-full sm:max-w-xs">
+              <Search
+                size={14}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+              />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search transactions..."
+                aria-label="Search transactions"
+                className="h-9 w-full rounded-sm border border-border bg-secondary pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+            <label className="space-y-1">
+              <span className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
+                Category
+              </span>
+              <select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                aria-label="Filter transactions by category"
+                className="h-9 w-full rounded-sm border border-border bg-secondary px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
+              >
+                <option value="all">All Categories</option>
+                {categoryOptions.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
+                Direction
+              </span>
+              <select
+                value={directionFilter}
+                onChange={(e) =>
+                  setDirectionFilter(e.target.value as DirectionFilter)
+                }
+                aria-label="Filter transactions by direction"
+                className="h-9 w-full rounded-sm border border-border bg-secondary px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
+              >
+                <option value="all">All Directions</option>
+                <option value="incoming">Cash In</option>
+                <option value="outgoing">Cash Out</option>
+              </select>
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
+                Alerts
+              </span>
+              <select
+                value={alertFilter}
+                onChange={(e) => setAlertFilter(e.target.value as AlertFilter)}
+                aria-label="Filter transactions by player alert status"
+                className="h-9 w-full rounded-sm border border-border bg-secondary px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
+              >
+                <option value="all">All Alert Levels</option>
+                <option value="normal">No Alert</option>
+                <option value="warning">Warning</option>
+                <option value="compliance">Compliance</option>
+              </select>
+            </label>
+
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={clearAdvancedFilters}
+                disabled={!hasActiveFilters}
+                className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-sm border border-border bg-secondary px-3 text-xs text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 lg:w-auto cursor-pointer"
+              >
+                <FilterX size={13} />
+                Clear Filters
+              </button>
+            </div>
+          </div>
+
+          {hasActiveFilters && (
+            <p className="text-[11px] text-muted-foreground font-mono">
+              {filteredTransactionRows.length} of {transactionRows.length}{" "}
+              transactions match the active filters.
+            </p>
+          )}
+        </div>
 
         <div className="bg-card border border-border rounded overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-secondary/40">
                 <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">
-                  Time
+                  <button
+                    type="button"
+                    onClick={() => handleSort("dateTime")}
+                    className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors cursor-pointer"
+                  >
+                    Date & Time
+                    {renderSortIcon("dateTime")}
+                  </button>
                 </th>
                 <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">
-                  Player
+                  <button
+                    type="button"
+                    onClick={() => handleSort("player")}
+                    className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors cursor-pointer"
+                  >
+                    Player
+                    {renderSortIcon("player")}
+                  </button>
                 </th>
                 <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">
-                  Dir.
+                  <button
+                    type="button"
+                    onClick={() => handleSort("direction")}
+                    className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors cursor-pointer"
+                  >
+                    Dir.
+                    {renderSortIcon("direction")}
+                  </button>
                 </th>
                 <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">
-                  Category
+                  <button
+                    type="button"
+                    onClick={() => handleSort("category")}
+                    className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors cursor-pointer"
+                  >
+                    Category
+                    {renderSortIcon("category")}
+                  </button>
                 </th>
                 <th className="text-right px-4 py-2.5 text-xs text-muted-foreground font-medium">
-                  Amount
+                  <button
+                    type="button"
+                    onClick={() => handleSort("amount")}
+                    className="ml-auto inline-flex items-center gap-1.5 hover:text-foreground transition-colors cursor-pointer"
+                  >
+                    Amount
+                    {renderSortIcon("amount")}
+                  </button>
                 </th>
-                <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">
+                {/* <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">
                   Cashier
-                </th>
+                </th> */}
                 <th className="text-right px-4 py-2.5 text-xs text-muted-foreground font-medium">
                   Details
                 </th>
@@ -539,7 +1028,7 @@ export function ReportsView({
             </thead>
 
             <tbody>
-              {transactionRows.length === 0 ? (
+              {sortedTransactionRows.length === 0 ? (
                 <tr>
                   <td
                     colSpan={7}
@@ -547,19 +1036,23 @@ export function ReportsView({
                   >
                     {loadingReport
                       ? "Loading..."
+                      : hasActiveFilters
+                      ? "No transactions match the active filters."
                       : "No transactions for this date."}
                   </td>
                 </tr>
               ) : (
-                transactionRows.map((t, i) => (
+                paginatedTransactionRows.map((t, i) => (
                   <tr
                     key={t.id}
                     className={`border-b border-border last:border-0 ${
-                      i % 2 === 1 ? "bg-secondary/20" : ""
+                      ((currentPage - 1) * pageSize + i) % 2 === 1
+                        ? "bg-secondary/20"
+                        : ""
                     }`}
                   >
                     <td className="px-4 py-3 text-xs font-mono text-muted-foreground whitespace-nowrap">
-                      {t.time}
+                      {formatDateOnly(t.date)} {t.time}
                     </td>
 
                     <td className="px-4 py-3">
@@ -591,9 +1084,9 @@ export function ReportsView({
                       {fmt(Number(t.amount) || 0)}
                     </td>
 
-                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                    {/* <td className="px-4 py-3 text-xs text-muted-foreground">
                       {t.cashierName}
-                    </td>
+                    </td> */}
 
                     <td className="px-4 py-3 text-right">
                       <button
@@ -631,6 +1124,61 @@ export function ReportsView({
             )}
           </table>
         </div>
+
+        {sortedTransactionRows.length > 0 && (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-x border-b border-border rounded-b bg-card px-4 py-3">
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <span>
+                Showing {(currentPage - 1) * pageSize + 1}–
+                {Math.min(currentPage * pageSize, sortedTransactionRows.length)}{" "}
+                of {sortedTransactionRows.length}
+              </span>
+
+              <label className="flex items-center gap-2">
+                Rows
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="h-8 rounded-sm border border-border bg-secondary px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
+                >
+                  {[10, 25, 50, 100].map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                disabled={currentPage === 1}
+                className="inline-flex h-8 items-center gap-1 rounded-sm border border-border bg-secondary px-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+              >
+                <ChevronLeft size={13} />
+                Previous
+              </button>
+
+              <span className="min-w-20 text-center text-xs text-muted-foreground font-mono">
+                Page {currentPage} of {totalPages}
+              </span>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setCurrentPage((page) => Math.min(totalPages, page + 1))
+                }
+                disabled={currentPage === totalPages}
+                className="inline-flex h-8 items-center gap-1 rounded-sm border border-border bg-secondary px-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+              >
+                Next
+                <ChevronRight size={13} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {selectedTransaction && (

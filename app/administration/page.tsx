@@ -1,53 +1,129 @@
 "use client";
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
-
-import {
-  LayoutDashboard,
-  Plus,
-  BarChart2,
-  Settings,
-  LogOut,
-  Shield,
-  Loader2,
-} from "lucide-react";
-import type { Cashier, Player, ApiPlayer, Transaction } from "../lib/types";
-import { TODAY, START_OF_TODAY, END_OF_TODAY } from "../lib/constants";
-import { getPlayerTotals, getStatus } from "../lib/utils";
+import { AdminView } from "../components/AdminView";
 import { getAllCashiers, getAllPlayersApi, getDailyReport } from "../lib/api";
-import { DashboardView } from "./DashboardView";
+import type { Cashier, Player, ApiPlayer, Transaction } from "../lib/types";
+import { END_OF_TODAY, START_OF_TODAY, TODAY } from "../lib/constants";
+import { LoginScreen } from "../components/LoginScreen";
+import {
+  BarChart2,
+  LayoutDashboard,
+  LogOut,
+  Plus,
+  Settings,
+  Shield,
+} from "lucide-react";
+import { View } from "../components/MainApp";
+import { getPlayerTotals, getStatus } from "../lib/utils";
 
-export type View =
-  | "dashboard"
-  | "entry"
-  | "monitoring"
-  | "reports"
-  | "admin"
-  | "audit";
+const SESSION_KEY = "casino_session";
+const TIMEOUT_MS = 60 * 60 * 1000;
 
-export function MainApp({
-  user,
-  onLogout,
-}: {
-  user: Cashier;
-  onLogout: () => void;
-}) {
-  const router = useRouter();
-  const pathname = usePathname();
+function saveSession(cashier: Cashier) {
+  sessionStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({ cashier, lastActivity: Date.now() })
+  );
+}
 
-  const [, setPlayers] = useState<Player[]>([]);
-  const [cashiers, setCashiers] = useState<Cashier[]>([]);
-  const [apiPlayers, setApiPlayers] = useState<ApiPlayer[]>([]);
-  const [selectedDate] = useState(TODAY);
+function loadSession(): Cashier | null {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const { cashier, lastActivity } = JSON.parse(raw);
+    if (Date.now() - lastActivity > TIMEOUT_MS) {
+      sessionStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+    return cashier;
+  } catch {
+    return null;
+  }
+}
 
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+function clearSession() {
+  sessionStorage.removeItem(SESSION_KEY);
+}
 
+export default function Home() {
   // Track session transactions locally (API doesn't have a list-by-player endpoint yet)
   const sessionTxnsRef = useRef<Map<string, Transaction[]>>(new Map());
 
-  // Pure data fetch — returns data without setting state
+  const pathname = usePathname();
+  const router = useRouter();
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [user, setUser] = useState<Cashier | null>(null);
+  const [cashiers, setCashiers] = useState<Cashier[]>([]);
+  const [apiPlayers, setApiPlayers] = useState<ApiPlayer[]>([]);
+  const [, setPlayers] = useState<Player[]>([]);
+  const [, setError] = useState<string>("");
+  const activeView = useMemo<View>(() => {
+    const pathSegment = pathname.split("/")[1]?.toLowerCase();
+
+    switch (pathSegment) {
+      case "daily-entry":
+      case "daily%20entry":
+      case "entry":
+        return "entry";
+
+      case "reports":
+        return "reports";
+
+      case "administration":
+      case "admin":
+        return "admin";
+
+      default:
+        return "dashboard";
+    }
+  }, [pathname]);
+
+  //   const [selectedDate, setSelectedDate] = useState<string>(TODAY);
+  const selectedDate = TODAY; // Use a constant for the selected date since it's not being changed in this code snippet
+
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    async function initializeSession() {
+      const session = loadSession();
+      setUser(session);
+      setMounted(true);
+    }
+    initializeSession();
+  }, []);
+
+  const logout = useCallback(() => {
+    clearSession();
+    setUser(null);
+  }, []);
+
+  const handleLogin = useCallback((cashier: Cashier) => {
+    saveSession(cashier);
+    setUser(cashier);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted || !user) return;
+
+    function resetTimer() {
+      saveSession(user!);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(logout, TIMEOUT_MS);
+    }
+
+    const events = ["mousedown", "keydown", "touchstart", "scroll"];
+    events.forEach((e) => window.addEventListener(e, resetTimer));
+    resetTimer();
+
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, resetTimer));
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [mounted, user, logout]);
+
   const fetchData = useCallback(async () => {
     const [cashierData, playerData, dailyReport] = await Promise.all([
       getAllCashiers(),
@@ -55,19 +131,13 @@ export function MainApp({
       getDailyReport(START_OF_TODAY, END_OF_TODAY),
     ]);
 
-    console.log("Fetched data:", {
-      cashiers: cashierData,
-      apiPlayers: playerData,
-      dailyReport,
-    });
+    setCashiers(cashierData);
 
     const builtPlayers: Player[] = [];
 
     if (dailyReport && dailyReport.playerDetail.length > 0) {
       for (const pd of dailyReport.playerDetail) {
         const apiP = playerData.find((p) => p.id === pd.playerId);
-
-        // console.log("Building player:", playerData, pd, apiP);
 
         const txns: Transaction[] =
           pd.transactions?.map((t) => ({
@@ -84,8 +154,6 @@ export function MainApp({
             cashierName: t.cashierName,
           })) || [];
 
-        // console.log("Building player:", playerData, pd, apiP);
-
         builtPlayers.push({
           id: pd.playerId,
           name: pd.playerName || apiP?.name || "Unknown",
@@ -98,8 +166,6 @@ export function MainApp({
       for (const apiP of playerData) {
         const pDate = apiP.date ? apiP.date.split("T")[0] : "";
         const localTxns = sessionTxnsRef.current.get(apiP.id) || [];
-
-        // console.log("Building player:", playerData, apiP);
 
         if (pDate === selectedDate || localTxns.length > 0) {
           builtPlayers.push({
@@ -117,7 +183,7 @@ export function MainApp({
     return { cashierData, playerData, builtPlayers };
   }, [selectedDate]);
 
-  // For child components to trigger a refresh
+  // Trigger a refresh
   const refreshData = useCallback(async () => {
     try {
       setError("");
@@ -131,49 +197,28 @@ export function MainApp({
     }
   }, [fetchData]);
 
-  // Initial load — setState in .then() callbacks (React-recommended pattern)
   useEffect(() => {
-    let active = true;
+    if (!user) return;
 
-    fetchData()
-      .then(({ cashierData, playerData, builtPlayers }) => {
-        if (!active) return;
-        setCashiers(cashierData);
-        setApiPlayers(playerData);
-        setPlayers(builtPlayers);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    refreshData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
-        console.log("Initial data loaded:", {
-          cashiers: cashierData,
-          apiPlayers: playerData,
-          players: builtPlayers,
-        });
-      })
-      .catch((err) => {
-        if (!active) return;
-        console.error("Failed to load data:", err);
-        setError(err instanceof Error ? err.message : "Failed to load data");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [fetchData]);
-
-  const canAdmin = user.role === "supervisor" || user.role === "manager";
-  const canReports = user.role === "manager" || user.role === "supervisor";
+  const canAdmin = user?.role === "supervisor" || user?.role === "manager";
+  const canReports = user?.role === "manager" || user?.role === "supervisor";
 
   const navItems: { id: View; icon: React.ElementType; label: string }[] = [
     { id: "dashboard", icon: LayoutDashboard, label: "Dashboard" },
     { id: "entry", icon: Plus, label: "Daily Entry" },
+    // { id: "monitoring", icon: Activity, label: "Monitoring" },
     ...(canReports
       ? [{ id: "reports" as View, icon: BarChart2, label: "Reports" }]
       : []),
     ...(canAdmin
       ? [{ id: "admin" as View, icon: Settings, label: "Administration" }]
       : []),
+    // { id: "audit", icon: ClipboardList, label: "Audit Log" },
   ];
 
   const monitoringPlayers = useMemo(
@@ -222,21 +267,19 @@ export function MainApp({
     router.push(routes[item.id] || "/");
   }
 
-  if (loading) {
+  if (!mounted) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center px-4">
         <div className="w-72">
           <div className="text-center mb-10">
-            <Loader2
-              size={24}
-              className="animate-spin text-accent mx-auto mb-3"
-            />
-            <p className="text-sm text-muted-foreground">Loading data...</p>
+            <p className="text-sm text-muted-foreground">Loading...</p>
           </div>
         </div>
       </div>
     );
   }
+
+  if (!user) return <LoginScreen onLogin={handleLogin} />;
 
   return (
     <div className="min-h-screen h-screen bg-background flex overflow-hidden">
@@ -267,12 +310,12 @@ export function MainApp({
         </div>
 
         <nav className="flex-1 p-2.5 space-y-0.5 overflow-auto">
-          {navItems?.map((item) => (
+          {navItems.map((item) => (
             <button
               key={item.id}
               onClick={() => handleNav(item)}
               className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-sm text-sm transition-colors cursor-pointer ${
-                item.label.toLowerCase() === "dashboard" && pathname === "/"
+                activeView === item.id
                   ? "bg-accent/15 text-accent font-medium"
                   : "text-muted-foreground hover:text-foreground hover:bg-secondary"
               }`}
@@ -298,7 +341,7 @@ export function MainApp({
           </div>
 
           <button
-            onClick={onLogout}
+            onClick={logout}
             className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-sm text-sm text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
           >
             <LogOut size={14} />
@@ -306,100 +349,13 @@ export function MainApp({
           </button>
         </div>
       </aside>
-
-      {/* Main */}
       <main className="flex-1 h-screen flex flex-col min-w-0 overflow-hidden">
-        {/* Header */}
-        <header className="h-12 border-b border-border flex items-center justify-between px-4 sm:px-5 shrink-0 bg-card/50">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="lg:hidden text-muted-foreground hover:text-foreground"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="3" y1="6" x2="21" y2="6" />
-                <line x1="3" y1="12" x2="21" y2="12" />
-                <line x1="3" y1="18" x2="21" y2="18" />
-              </svg>
-            </button>
-
-            <h2 className="text-sm font-semibold text-foreground">
-              {navItems.find((n) => n.id === "dashboard")?.label}
-            </h2>
-          </div>
-
-          <div className="flex items-center gap-5">
-            <div className="flex items-center gap-1.5 text-xs">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-emerald-400 font-medium">Live</span>
-            </div>
-          </div>
-        </header>
-
-        {/* Error banner */}
-        {error && (
-          <div className="mx-5 mt-3 p-3 bg-destructive/10 border border-destructive/25 rounded text-xs text-destructive">
-            {error}
-            <button
-              onClick={() => {
-                setError("");
-                refreshData();
-              }}
-              className="ml-3 underline"
-            >
-              Retry
-            </button>
-          </div>
-        )}
-
-        {/* Page */}
-        <div className="flex-1 overflow-auto scrollbar-thin [scrollbar-color:var(--color-border)_transparent]">
-          <DashboardView
-            players={apiPlayers
-              .filter((p) => {
-                const [datePart] = p.date.split(" ");
-                const [month, day, year] = datePart.split("/");
-
-                const formattedDate = `${year}-${month.padStart(
-                  2,
-                  "0"
-                )}-${day.padStart(2, "0")}`;
-
-                return formattedDate === selectedDate;
-              })
-              .map((p) => ({
-                id: p.id,
-                name: p.name || "Unknown",
-                date: p.date || TODAY,
-                transactions: (p.transactions || []).map((t) => ({
-                  id: t.id,
-                  direction:
-                    t.direction === "outgoing"
-                      ? ("outgoing" as const)
-                      : ("incoming" as const),
-                  category: t.category || "Other",
-                  amount: Number(t.amount) || 0,
-                  timestamp: t.timestamp || "",
-                  cashierId: t.createdBy || "",
-                  playerName: t.playerName || "Unknown",
-                  cashierName: t.cashierName || "Unknown",
-                })),
-                createdBy: p.createdBy || "",
-                gamerNumber: p.gamerNumber,
-              }))}
-            cashiers={cashiers}
-            selectedDate={TODAY}
-          />
-        </div>
+        <AdminView
+          cashiers={cashiers}
+          setCashiers={setCashiers}
+          user={user}
+          onDataChange={refreshData}
+        />
       </main>
     </div>
   );

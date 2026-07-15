@@ -173,13 +173,17 @@ export async function lockTransactionApi(transactionId: string): Promise<void> {
 // ─── Daily Report ──────────────────────────────────────
 
 export async function getDailyReport(
-  businessDate: string
+  startDateTime: string,
+  endDateTime: string 
 ): Promise<ApiDailyReport | null> {
-  // console.log("Fetching daily report for business date:", businessDate);
+  console.log("Fetching daily report for business date:", startDateTime);
   const res = await post<ApiDailyReport>("/GetDailyReportByBusinessDate", {
-    businessDate,
+    startDateTime,
+    endDateTime,
   });
   if (res.status !== "200" || !res.data) return null;
+
+  console.log("Fetched daily report:", res.data);
   return res.data;
 }
 

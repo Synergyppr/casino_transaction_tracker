@@ -1,5 +1,4 @@
 "use client";
-
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Cashier } from "./lib/types";
 import { LoginScreen } from "./components/LoginScreen";

@@ -272,11 +272,7 @@ export function AdminView({
                           className="px-2 py-1 text-xs bg-secondary border border-border rounded-sm text-muted-foreground hover:text-foreground transition-colors 
                           flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
                         >
-                          {c.active ? (
-                            <Lock size={10} />
-                          ) : (
-                            <Unlock size={10} />
-                          )}
+                          {c.active ? <Lock size={10} /> : <Unlock size={10} />}
                           {c.active ? "Deactivate" : "Activate"}
                         </button>
 
@@ -544,9 +540,7 @@ export function AdminView({
               <input
                 value={editModal.phone}
                 onChange={(e) =>
-                  setEditModal((p) =>
-                    p ? { ...p, phone: e.target.value } : p
-                  )
+                  setEditModal((p) => (p ? { ...p, phone: e.target.value } : p))
                 }
                 placeholder="(555) 123-4567"
                 className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"

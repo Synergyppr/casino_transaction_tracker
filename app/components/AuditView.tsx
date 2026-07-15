@@ -109,8 +109,7 @@ export function AuditView({
                     {fmt(t.amount)}
                   </td>
                   <td className="px-4 py-2.5 text-xs text-muted-foreground">
-                    {/* TODO: Fix */}
-                    {players?.[0]?.createdBy || t.cashierName}
+                    {t.cashierName}
                   </td>
                 </tr>
               ))
