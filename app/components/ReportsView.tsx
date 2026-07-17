@@ -965,7 +965,16 @@ export function ReportsView({
         </div>
 
         <div className="bg-card border border-border rounded overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-225 table-fixed text-sm">
+            <colgroup>
+              <col className="w-[18%]" />
+              <col className="w-[22%]" />
+              <col className="w-[9%]" />
+              <col className="w-[24%]" />
+              <col className="w-[12%]" />
+              <col className="w-[15%]" />
+            </colgroup>
+
             <thead>
               <tr className="border-b border-border bg-secondary/40">
                 <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">
@@ -1031,7 +1040,7 @@ export function ReportsView({
               {sortedTransactionRows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={6}
                     className="px-4 py-10 text-center text-muted-foreground text-sm"
                   >
                     {loadingReport
@@ -1055,8 +1064,13 @@ export function ReportsView({
                       {formatDateOnly(t.date)} {t.time}
                     </td>
 
-                    <td className="px-4 py-3">
-                      <p className="font-semibold">{t.playerName}</p>
+                    <td className="px-4 py-3 overflow-hidden">
+                      <p
+                        className="truncate font-semibold"
+                        title={t.playerName}
+                      >
+                        {t.playerName}
+                      </p>
                       {t.gamerNumber && (
                         <p className="text-[11px] text-muted-foreground font-mono mt-0.5">
                           {t.gamerNumber}
@@ -1076,8 +1090,10 @@ export function ReportsView({
                       </span>
                     </td>
 
-                    <td className="px-4 py-3 text-xs text-muted-foreground">
-                      {t.category || "Other"}
+                    <td className="px-4 py-3 overflow-hidden text-xs text-muted-foreground">
+                      <p className="truncate" title={t.category || "Other"}>
+                        {t.category || "Other"}
+                      </p>
                     </td>
 
                     <td className="px-4 py-3 text-right font-mono text-xs text-foreground">
@@ -1106,19 +1122,18 @@ export function ReportsView({
             {transactionRows?.length > 0 && (
               <tfoot>
                 <tr className="border-t border-border bg-secondary/40">
-                  <td className="px-4 py-2.5 text-xs font-semibold text-muted-foreground">
+                  <td
+                    colSpan={4}
+                    className="px-4 py-2.5 text-xs font-semibold text-muted-foreground"
+                  >
                     Totals
                   </td>
-                  <td />
-                  <td />
-                  <td />
                   <td className="px-4 py-2.5 text-right font-mono text-xs font-semibold text-foreground">
                     In {fmt(totals.incoming)} / Out {fmt(totals.outgoing)}
                   </td>
-                  <td className="px-4 py-2.5 text-xs text-muted-foreground">
+                  <td className="px-4 py-2.5 text-right text-xs text-muted-foreground">
                     {totals.txns} txns
                   </td>
-                  <td />
                 </tr>
               </tfoot>
             )}

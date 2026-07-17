@@ -119,6 +119,8 @@ export async function updatePlayerApi(data: {
   lastName?: string;
   gamerNumber?: string;
   phone?: string;
+  active?: boolean;
+  updatedBy?: string;
 }): Promise<void> {
   const res = await post<unknown>("/players/update", data);
   if (res.status !== "200")

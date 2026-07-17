@@ -2,15 +2,12 @@
 import { useState, useMemo } from "react";
 import {
   Search,
-  AlertTriangle,
-  ArrowDownCircle,
-  ArrowUpCircle,
   UserPlus,
   X,
-  Loader2,
   FileEditIcon,
   ChevronLeft,
   ChevronRight,
+  EyeIcon,
 } from "lucide-react";
 import type {
   Cashier,
@@ -27,14 +24,21 @@ import {
   updateTransactionApi,
   mapApiTransaction,
   getPlayerByGamerNumber,
+  updatePlayerApi,
 } from "../lib/api";
 import { StatusBadge } from "./StatusBadge";
 import { AmtCell } from "./AmtCell";
-import { Modal } from "./Modal";
+import AllPlayerTransactionsModal from "./modals/AllPlayerTransactionsModal";
+import ManageTransactionModal from "./modals/ManageTransactionModal";
+import DuplicatePlayerModal from "./modals/DuplicatePlayerModal";
+import AddPlayerModal from "./modals/AddPlayerModal";
+import EditPlayerModal, {
+  type EditPlayerDraft,
+} from "./modals/EditPlayerModal";
 
 const PLAYERS_PER_PAGE = 15;
 
-interface TxnDraft {
+export interface TxnDraft {
   id?: string;
   mode: "create" | "update";
   playerId: string;
@@ -44,6 +48,13 @@ interface TxnDraft {
   amount: string;
   notes?: string;
   reason?: string;
+}
+
+export interface PlayerDraft {
+  firstName: string;
+  lastName: string;
+  gamerNumber: string;
+  phone: string;
 }
 
 export function normalizeDate(value?: string): string {
@@ -113,7 +124,7 @@ export function DailyEntryView({
 }) {
   const [search, setSearch] = useState("");
   const [addModal, setAddModal] = useState(false);
-  const [playerDraft, setPlayerDraft] = useState({
+  const [playerDraft, setPlayerDraft] = useState<PlayerDraft>({
     firstName: "",
     lastName: "",
     gamerNumber: "",
@@ -132,6 +143,9 @@ export function DailyEntryView({
   const [customCategory, setCustomCategory] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [amountFocused, setAmountFocused] = useState(false);
+  const [editPlayerModal, setEditPlayerModal] =
+    useState<EditPlayerDraft | null>(null);
+  const [editPlayerError, setEditPlayerError] = useState("");
 
   const visiblePlayers = useMemo(() => {
     const apiPlayersForDate = apiPlayers
@@ -227,6 +241,118 @@ export function DailyEntryView({
       firstName,
       lastName: lastNameParts.join(" "),
     };
+  }
+
+  function openEditPlayer(player: Player) {
+    const apiPlayer = apiPlayers.find((item) => item.id === player.id);
+    const { firstName, lastName } = splitPlayerName(
+      apiPlayer?.name || player.name
+    );
+
+    const apiPlayerDetails = apiPlayer as
+      | (ApiPlayer & {
+          phone?: string | null;
+          active?: boolean;
+        })
+      | undefined;
+
+    setEditPlayerError("");
+    setEditPlayerModal({
+      id: player.id,
+      firstName,
+      lastName,
+      gamerNumber: apiPlayer?.gamerNumber || player.gamerNumber || "",
+      phone: apiPlayerDetails?.phone ? String(apiPlayerDetails.phone) : "",
+      active: apiPlayerDetails?.active ?? true,
+    });
+  }
+
+  function closeEditPlayer() {
+    if (saving) return;
+
+    setEditPlayerModal(null);
+    setEditPlayerError("");
+  }
+
+  async function submitPlayerUpdate() {
+    if (!editPlayerModal || saving) return;
+
+    const firstName = editPlayerModal.firstName.trim();
+    const lastName = editPlayerModal.lastName.trim();
+    const gamerNumber = editPlayerModal.gamerNumber.trim();
+    const phone = editPlayerModal.phone.trim();
+
+    if (!firstName) {
+      setEditPlayerError("First name is required.");
+      return;
+    }
+
+    if (!lastName) {
+      setEditPlayerError("Last name is required.");
+      return;
+    }
+
+    if (!gamerNumber) {
+      setEditPlayerError("Gamer number is required.");
+      return;
+    }
+
+    setSaving(true);
+    setEditPlayerError("");
+
+    try {
+      await updatePlayerApi({
+        id: editPlayerModal.id,
+        gamerNumber,
+        firstName,
+        lastName,
+        phone,
+        active: editPlayerModal.active,
+        updatedBy: user.name,
+      });
+
+      const updatedName = `${firstName} ${lastName}`.trim();
+
+      setPlayers((previousPlayers) =>
+        previousPlayers.map((player) =>
+          player.id === editPlayerModal.id
+            ? {
+                ...player,
+                name: updatedName,
+                gamerNumber,
+              }
+            : player
+        )
+      );
+
+      setListModal((currentPlayer) =>
+        currentPlayer?.id === editPlayerModal.id
+          ? {
+              ...currentPlayer,
+              name: updatedName,
+              gamerNumber,
+            }
+          : currentPlayer
+      );
+
+      setTxnModal((currentTransaction) =>
+        currentTransaction?.playerId === editPlayerModal.id
+          ? {
+              ...currentTransaction,
+              playerName: updatedName,
+            }
+          : currentTransaction
+      );
+
+      setEditPlayerModal(null);
+      await onDataChange();
+    } catch (error) {
+      setEditPlayerError(
+        error instanceof Error ? error.message : "Failed to update player"
+      );
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleGamerNumberLookup() {
@@ -594,8 +720,18 @@ export function DailyEntryView({
                     </td>
 
                     <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end gap-2">
+                      <div className="flex flex-wrap justify-end gap-2">
                         <button
+                          type="button"
+                          onClick={() => openEditPlayer(p)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 text-xs bg-secondary hover:bg-accent/20 border border-border rounded-sm transition-colors text-foreground"
+                        >
+                          <FileEditIcon size={12} />
+                          Edit
+                        </button>
+
+                        <button
+                          type="button"
                           onClick={() => openTxn(p)}
                           className="px-3 py-1 text-xs bg-secondary hover:bg-accent/20 border border-border rounded-sm transition-colors text-foreground"
                         >
@@ -605,9 +741,9 @@ export function DailyEntryView({
                         {p.transactions.length > 0 && (
                           <button
                             onClick={() => setListModal(p)}
-                            className="px-3 py-1 text-xs bg-secondary hover:bg-accent/20 border border-border rounded-sm transition-colors text-foreground"
+                            className="inline-flex items-center gap-1.5 px-3 py-1 text-xs bg-secondary hover:bg-accent/20 border border-border rounded-sm transition-colors text-foreground"
                           >
-                            Transactions
+                            <EyeIcon size={12} /> Transactions
                           </button>
                         )}
                       </div>
@@ -657,633 +793,75 @@ export function DailyEntryView({
 
       {/* Add player modal */}
       {addModal && (
-        <Modal onClose={resetPlayerDraft}>
-          <div className="flex items-center justify-between mb-5">
-            <h3 className="text-sm font-semibold">Register Player</h3>
-            <button
-              onClick={resetPlayerDraft}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              <X size={15} />
-            </button>
-          </div>
+        <AddPlayerModal
+          playerDraft={playerDraft}
+          setPlayerDraft={setPlayerDraft}
+          resetPlayerDraft={resetPlayerDraft}
+          handleAddPlayer={handleAddPlayer}
+          saving={saving}
+          playerError={playerError}
+          setPlayerError={setPlayerError}
+          handleGamerNumberLookup={handleGamerNumberLookup}
+          playerLookupLoading={playerLookupLoading}
+          playerLookupMessage={playerLookupMessage}
+          setPlayerLookupMessage={setPlayerLookupMessage}
+        />
+      )}
 
-          <div className="space-y-4 mb-5">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider">
-                  First Name
-                </label>
-                <input
-                  value={playerDraft.firstName}
-                  onChange={(e) => {
-                    setPlayerDraft((p) => ({
-                      ...p,
-                      firstName: e.target.value,
-                    }));
-                    setPlayerError("");
-                  }}
-                  placeholder="First name"
-                  disabled={saving}
-                  className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-50"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider">
-                  Last Name
-                </label>
-                <input
-                  value={playerDraft.lastName}
-                  onChange={(e) => {
-                    setPlayerDraft((p) => ({
-                      ...p,
-                      lastName: e.target.value,
-                    }));
-                    setPlayerError("");
-                  }}
-                  placeholder="Last name"
-                  disabled={saving}
-                  className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-50"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider">
-                Gamer Number (optional)
-              </label>
-              <div className="flex gap-2">
-                <input
-                  value={playerDraft.gamerNumber}
-                  onChange={(e) => {
-                    setPlayerDraft((p) => ({
-                      ...p,
-                      gamerNumber: e.target.value,
-                    }));
-                    setPlayerLookupMessage("");
-                    setPlayerError("");
-                  }}
-                  onBlur={handleGamerNumberLookup}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleGamerNumberLookup();
-                    }
-                  }}
-                  placeholder="Auto-generated if empty"
-                  disabled={saving || playerLookupLoading}
-                  className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-50"
-                />
-
-                <button
-                  type="button"
-                  onClick={handleGamerNumberLookup}
-                  disabled={
-                    saving ||
-                    playerLookupLoading ||
-                    !playerDraft.gamerNumber.trim()
-                  }
-                  className="h-9 px-3 bg-secondary border border-border rounded-sm text-xs text-foreground hover:bg-accent/10 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
-                >
-                  {playerLookupLoading ? (
-                    <Loader2 size={12} className="animate-spin" />
-                  ) : (
-                    <Search size={12} />
-                  )}
-                  Lookup
-                </button>
-              </div>
-
-              {playerLookupMessage && (
-                <p className="text-xs text-emerald-400 mt-1.5">
-                  {playerLookupMessage}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider">
-                Phone (optional)
-              </label>
-              <input
-                value={(() => {
-                  const digits = playerDraft.phone
-                    .replace(/\D/g, "")
-                    .slice(0, 10);
-
-                  if (digits.length <= 3) return digits;
-                  if (digits.length <= 6)
-                    return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
-
-                  return `(${digits.slice(0, 3)}) ${digits.slice(
-                    3,
-                    6
-                  )}-${digits.slice(6)}`;
-                })()}
-                onChange={(e) => {
-                  const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
-
-                  setPlayerDraft((p) => ({
-                    ...p,
-                    phone: digits,
-                  }));
-                }}
-                placeholder="(787) 888-9890"
-                disabled={saving}
-                inputMode="numeric"
-                autoComplete="tel"
-                className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-50"
-              />
-            </div>
-
-            {playerError && (
-              <p className="text-xs text-destructive">{playerError}</p>
-            )}
-          </div>
-
-          <div className="flex gap-2">
-            <button
-              onClick={handleAddPlayer}
-              disabled={
-                !playerDraft.firstName.trim() ||
-                !playerDraft.lastName.trim() ||
-                saving
-              }
-              className="flex-1 h-9 bg-accent text-white rounded-sm text-sm font-medium hover:bg-accent/85 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {saving && <Loader2 size={13} className="animate-spin" />}
-              {playerLookupMessage ? "Record Transaction" : "Register Player"}
-            </button>
-
-            <button
-              onClick={resetPlayerDraft}
-              className="flex-1 h-9 bg-secondary border border-border rounded-sm text-sm text-foreground hover:bg-accent/10 transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-        </Modal>
+      {/* Edit player modal */}
+      {editPlayerModal && (
+        <EditPlayerModal
+          playerDraft={editPlayerModal}
+          setPlayerDraft={setEditPlayerModal}
+          saving={saving}
+          error={editPlayerError}
+          setError={setEditPlayerError}
+          onClose={closeEditPlayer}
+          onSubmit={submitPlayerUpdate}
+        />
       )}
 
       {/* Duplicate modal */}
       {dupModal && (
-        <Modal onClose={() => setDupModal(null)}>
-          <div className="flex items-start gap-3 mb-4">
-            <AlertTriangle
-              size={16}
-              className="text-amber-400 shrink-0 mt-0.5"
-            />
-
-            <div>
-              <h3 className="text-sm font-semibold">
-                Possible Duplicate Player
-              </h3>
-              <p className="text-xs text-muted-foreground mt-1">
-                A similar name already exists for today. How would you like to
-                proceed?
-              </p>
-            </div>
-          </div>
-
-          <div className="bg-secondary border border-border rounded-sm p-3 mb-4 space-y-2">
-            {dupModal.matches.map((m) => {
-              const { incoming, outgoing } = getPlayerTotals(m);
-
-              return (
-                <div
-                  key={m.id}
-                  className="flex items-center justify-between text-xs"
-                >
-                  <span className="font-semibold text-foreground">
-                    {m.name}
-                  </span>
-                  <span className="font-mono text-muted-foreground">
-                    IN {fmt(incoming)} &middot; OUT {fmt(outgoing)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="flex flex-col sm:flex-row gap-2">
-            <button
-              onClick={() => {
-                openTxn(dupModal.matches[0]);
-                setDupModal(null);
-                resetPlayerDraft();
-              }}
-              className="flex-1 h-9 bg-accent text-white rounded-sm text-sm font-medium hover:bg-accent/85 transition-colors"
-            >
-              Use Existing Record
-            </button>
-
-            <button
-              onClick={() => createPlayer()}
-              disabled={saving}
-              className="flex-1 h-9 bg-secondary border border-border rounded-sm text-sm text-foreground hover:bg-accent/10 transition-colors disabled:opacity-50"
-            >
-              Create Separate
-            </button>
-
-            <button
-              onClick={() => setDupModal(null)}
-              className="w-full sm:w-9 h-9 bg-secondary border border-border rounded-sm flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <X size={13} />
-            </button>
-          </div>
-        </Modal>
+        <DuplicatePlayerModal
+          dupModal={dupModal}
+          setDupModal={setDupModal}
+          openTxn={openTxn}
+          createPlayer={createPlayer}
+          resetPlayerDraft={resetPlayerDraft}
+          saving={saving}
+          fmt={fmt}
+        />
       )}
 
       {/* Add / update transaction modal */}
       {txnModal && (
-        <Modal
-          onClose={() => {
-            setTxnModal(null);
-            setTxnError("");
-          }}
-        >
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h3 className="text-sm font-semibold">
-                {txnModal.mode === "update"
-                  ? "Update Transaction"
-                  : "Add Transaction"}
-              </h3>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {txnModal.playerName}
-              </p>
-            </div>
-
-            <button
-              onClick={() => {
-                setTxnModal(null);
-                setTxnError("");
-              }}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <X size={15} />
-            </button>
-          </div>
-
-          {/* Direction */}
-          <div className="mb-4">
-            <label className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider">
-              Direction
-            </label>
-
-            <div className="flex gap-2">
-              {(["incoming", "outgoing"] as Direction[]).map((dir) => (
-                <button
-                  key={dir}
-                  onClick={() =>
-                    setTxnModal((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            direction: dir,
-                            category:
-                              dir === "incoming"
-                                ? cashInCategory
-                                : cashOutCategory,
-                          }
-                        : prev
-                    )
-                  }
-                  className={`flex-1 h-9 rounded-sm text-sm flex items-center justify-center gap-2 transition-colors border ${
-                    txnModal.direction === dir
-                      ? dir === "incoming"
-                        ? "bg-sky-500/15 text-sky-400 border-sky-500/30"
-                        : "bg-rose-500/15 text-rose-400 border-rose-500/30"
-                      : "bg-secondary border-border text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {dir === "incoming" ? (
-                    <ArrowDownCircle size={13} />
-                  ) : (
-                    <ArrowUpCircle size={13} />
-                  )}
-                  {dir === "incoming" ? "Cash In" : "Cash Out"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Category */}
-          <div className="mb-4">
-            <label className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider">
-              Category
-            </label>
-
-            <select
-              value={txnModal.category}
-              onChange={(e) => {
-                const nextCategory = e.target.value;
-
-                if (txnModal.direction === "incoming") {
-                  setCashInCategory(nextCategory);
-                } else {
-                  setCashOutCategory(nextCategory);
-                }
-
-                setTxnModal((prev) =>
-                  prev ? { ...prev, category: nextCategory } : prev
-                );
-              }}
-              className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
-            >
-              {(txnModal.direction === "incoming"
-                ? CASH_IN_TYPES
-                : CASH_OUT_TYPES
-              ).map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-
-            {txnModal?.category?.includes("Other") && (
-              <input
-                type="text"
-                value={customCategory}
-                onChange={(e) => setCustomCategory(e.target.value)}
-                placeholder="Specify category..."
-                disabled={saving}
-                className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-50 mt-2"
-              />
-            )}
-          </div>
-
-          {/* Amount */}
-          {/* Amount */}
-          <div className="mb-5">
-            <label
-              htmlFor="currency"
-              className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider"
-            >
-              Amount (USD)
-            </label>
-
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-mono text-muted-foreground">
-                $
-              </span>
-
-              <input
-                type="text"
-                id="currency"
-                name="amount"
-                inputMode="decimal"
-                autoComplete="off"
-                placeholder="0.00"
-                value={
-                  amountFocused
-                    ? txnModal.amount
-                    : txnModal.amount
-                    ? Number(txnModal.amount).toLocaleString("en-US", {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })
-                    : ""
-                }
-                onFocus={(e) => {
-                  setAmountFocused(true);
-
-                  requestAnimationFrame(() => {
-                    e.target.select();
-                  });
-                }}
-                onBlur={() => {
-                  setAmountFocused(false);
-
-                  const amount = Number(txnModal.amount);
-
-                  if (!Number.isFinite(amount) || amount <= 0) return;
-
-                  setTxnModal((prev) =>
-                    prev
-                      ? {
-                          ...prev,
-                          amount: Math.min(amount, 1000000).toFixed(2),
-                        }
-                      : prev
-                  );
-                }}
-                onChange={(e) => {
-                  let value = e.target.value
-                    .replace(/[$,\s]/g, "")
-                    .replace(/[^\d.]/g, "");
-
-                  const decimalIndex = value.indexOf(".");
-
-                  if (decimalIndex !== -1) {
-                    value =
-                      value.slice(0, decimalIndex + 1) +
-                      value
-                        .slice(decimalIndex + 1)
-                        .replace(/\./g, "")
-                        .slice(0, 2);
-                  }
-
-                  if (value.startsWith(".")) {
-                    value = `0${value}`;
-                  }
-
-                  const numericValue = Number(value);
-
-                  if (
-                    value !== "" &&
-                    value !== "0." &&
-                    Number.isFinite(numericValue) &&
-                    numericValue > 1000000
-                  ) {
-                    value = "1000000";
-                  }
-
-                  setTxnModal((prev) =>
-                    prev
-                      ? {
-                          ...prev,
-                          amount: value,
-                        }
-                      : prev
-                  );
-
-                  setTxnError("");
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    submitTxn();
-                  }
-                }}
-                disabled={saving}
-                className="w-full h-9 pl-8 pr-3 bg-secondary border border-border rounded-sm text-sm font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-50"
-                autoFocus
-              />
-            </div>
-
-            {txnError && (
-              <p className="text-xs text-destructive mt-1.5">{txnError}</p>
-            )}
-          </div>
-
-          {txnModal.mode === "update" && (
-            <div className="space-y-4 mb-5">
-              <div>
-                <label className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider">
-                  Status
-                </label>
-
-                {(() => {
-                  const amount = Number(txnModal.amount) || 0;
-
-                  const status =
-                    amount >= 1000000
-                      ? {
-                          label: "COMPLIANCE REQ.",
-                          className:
-                            "text-emerald-400 border-emerald-500/30 bg-emerald-500/10",
-                        }
-                      : amount >= 7500
-                      ? {
-                          label: "APPROACHING",
-                          className:
-                            "text-amber-400 border-amber-500/30 bg-amber-500/10",
-                        }
-                      : {
-                          label: "NORMAL",
-                          className:
-                            "text-foreground border-border bg-secondary",
-                        };
-
-                  return (
-                    <div
-                      className={`h-9 px-3 rounded-sm border flex items-center font-mono text-sm font-semibold ${status.className}`}
-                    >
-                      {status.label}
-                    </div>
-                  );
-                })()}
-              </div>
-
-              <div>
-                <label className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider">
-                  Notes
-                </label>
-
-                <textarea
-                  value={txnModal?.notes || ""}
-                  onChange={(e) =>
-                    setTxnModal((prev) =>
-                      prev ? { ...prev, notes: e.target.value } : prev
-                    )
-                  }
-                  placeholder="Optional notes..."
-                  disabled={saving}
-                  rows={3}
-                  className="w-full px-3 py-2 bg-secondary border border-border rounded-sm text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-50 resize-none"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider">
-                  Reason for Update
-                </label>
-
-                <textarea
-                  value={txnModal?.reason || ""}
-                  onChange={(e) =>
-                    setTxnModal((prev) =>
-                      prev ? { ...prev, reason: e.target.value } : prev
-                    )
-                  }
-                  placeholder="Explain why this transaction is being updated..."
-                  disabled={saving}
-                  rows={3}
-                  className="w-full px-3 py-2 bg-secondary border border-border rounded-sm text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-50 resize-none"
-                />
-              </div>
-            </div>
-          )}
-
-          <div className="flex gap-2">
-            <button
-              onClick={submitTxn}
-              disabled={saving}
-              className="flex-1 h-9 bg-accent text-white rounded-sm text-sm font-medium hover:bg-accent/85 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {saving && <Loader2 size={13} className="animate-spin" />}
-              {txnModal.mode === "update"
-                ? "Update Transaction"
-                : "Record Transaction"}
-            </button>
-
-            <button
-              onClick={() => {
-                setTxnModal(null);
-                setTxnError("");
-              }}
-              className="flex-1 h-9 bg-secondary border border-border rounded-sm text-sm text-foreground hover:bg-accent/10 transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-        </Modal>
+        <ManageTransactionModal
+          txnModal={txnModal}
+          setTxnModal={setTxnModal}
+          txnError={txnError}
+          setTxnError={setTxnError}
+          amountFocused={amountFocused}
+          setAmountFocused={setAmountFocused}
+          customCategory={customCategory}
+          setCustomCategory={setCustomCategory}
+          cashInCategory={cashInCategory}
+          setCashInCategory={setCashInCategory}
+          cashOutCategory={cashOutCategory}
+          setCashOutCategory={setCashOutCategory}
+          saving={saving}
+          submitTxn={submitTxn}
+        />
       )}
 
       {/* List Modal */}
       {listModal && (
-        <Modal onClose={() => setListModal(null)}>
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h3 className="text-sm font-semibold">Transactions</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {listModal.name}
-              </p>
-            </div>
-
-            <button
-              onClick={() => setListModal(null)}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <X size={15} />
-            </button>
-          </div>
-
-          <div className="space-y-2">
-            {listModal.transactions.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-6">
-                No transactions recorded.
-              </p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {listModal.transactions.map((txn) => (
-                  <button
-                    key={txn.id}
-                    onClick={() => {
-                      openTxn(listModal, txn);
-                      setListModal(null);
-                    }}
-                    className={`px-2.5 py-1 rounded-sm border text-[11px] font-mono transition-colors ${
-                      txn.direction === "incoming"
-                        ? "bg-sky-500/10 text-sky-400 border-sky-500/25 hover:bg-sky-500/15"
-                        : "bg-rose-500/10 text-rose-400 border-rose-500/25 hover:bg-rose-500/15"
-                    }`}
-                  >
-                    {txn.direction === "incoming" ? "IN" : "OUT"} ·{" "}
-                    {txn.category} · {fmt(txn.amount)} ·{" "}
-                    <FileEditIcon
-                      size={10}
-                      className="inline text-accent cursor-pointer"
-                    />
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </Modal>
+        <AllPlayerTransactionsModal
+          listModal={listModal}
+          setListModal={setListModal}
+          openTxn={openTxn}
+          fmt={fmt}
+        />
       )}
     </div>
   );
