@@ -165,26 +165,41 @@ export function DailyEntryView({
 
   const normalizedSearch = search.trim().toLowerCase();
 
-  const displayed = useMemo(
-    () =>
-      normalizedSearch
-        ? todayPlayers.filter((p) => {
-            const normalizedName = (p.name || "").toLowerCase();
-            const [firstName = "", ...lastNameParts] =
-              normalizedName.split(/\s+/);
-            const lastName = lastNameParts.join(" ");
-            const gamerNumber = String(p.gamerNumber || "").toLowerCase();
+  const displayed = useMemo(() => {
+    const filtered = normalizedSearch
+      ? todayPlayers.filter((p) => {
+          const normalizedName = (p.name || "").toLowerCase();
+          const [firstName = "", ...lastNameParts] =
+            normalizedName.split(/\s+/);
+          const lastName = lastNameParts.join(" ");
+          const gamerNumber = String(p.gamerNumber || "").toLowerCase();
 
-            return (
-              firstName.includes(normalizedSearch) ||
-              lastName.includes(normalizedSearch) ||
-              normalizedName.includes(normalizedSearch) ||
-              gamerNumber.includes(normalizedSearch)
-            );
-          })
-        : todayPlayers,
-    [todayPlayers, normalizedSearch]
-  );
+          return (
+            firstName.includes(normalizedSearch) ||
+            lastName.includes(normalizedSearch) ||
+            normalizedName.includes(normalizedSearch) ||
+            gamerNumber.includes(normalizedSearch)
+          );
+        })
+      : todayPlayers;
+
+    return [...filtered].sort((a, b) => {
+      const [firstA = "", ...lastA] = (a.name || "")
+        .trim()
+        .toLowerCase()
+        .split(/\s+/);
+      const [firstB = "", ...lastB] = (b.name || "")
+        .trim()
+        .toLowerCase()
+        .split(/\s+/);
+
+      return (
+        firstA.localeCompare(firstB) ||
+        lastA.join(" ").localeCompare(lastB.join(" ")) ||
+        (a.gamerNumber || "").localeCompare(b.gamerNumber || "")
+      );
+    });
+  }, [todayPlayers, normalizedSearch]);
 
   const totalPages = Math.max(
     1,
