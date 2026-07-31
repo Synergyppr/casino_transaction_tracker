@@ -18,7 +18,7 @@ export function exportTransactionsToCsv(
     "Direction",
     "Category",
     "Amount",
-    "Transaction ID",
+    // "Transaction ID",
   ];
 
   const csvRows = rows.map((row) => [
@@ -29,7 +29,7 @@ export function exportTransactionsToCsv(
     row.direction,
     row.category || "Other",
     row.amount,
-    row.id,
+    // row.id,
   ]);
 
   const csv = [headers, ...csvRows]

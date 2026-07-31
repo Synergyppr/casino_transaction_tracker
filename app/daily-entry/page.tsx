@@ -3,8 +3,13 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { getAllCashiers, getAllPlayersApi, getDailyReport } from "../lib/api";
 import type { Cashier, Player, ApiPlayer, Transaction } from "../lib/types";
-import { END_OF_TODAY, START_OF_TODAY, TODAY } from "../lib/constants";
-import { LoginScreen } from "../components/LoginScreen";
+import {
+  // START_OF_TODAY,
+  // END_OF_TODAY,
+  END_OF_BUSINESS_DAY,
+  START_OF_BUSINESS_DAY,
+  TODAY,
+} from "../lib/constants";
 import {
   BarChart2,
   LayoutDashboard,
@@ -12,6 +17,7 @@ import {
   Plus,
   Settings,
   Shield,
+  UsersRound,
 } from "lucide-react";
 import { View } from "../components/MainApp";
 import { getPlayerTotals, getStatus } from "../lib/utils";
@@ -69,6 +75,10 @@ export default function Home() {
       case "entry":
         return "entry";
 
+      case "registered-players":
+      case "registered%20players":
+        return "players";
+
       case "reports":
         return "reports";
 
@@ -100,11 +110,6 @@ export default function Home() {
     setUser(null);
   }, []);
 
-  const handleLogin = useCallback((cashier: Cashier) => {
-    saveSession(cashier);
-    setUser(cashier);
-  }, []);
-
   useEffect(() => {
     if (!mounted || !user) return;
 
@@ -128,7 +133,13 @@ export default function Home() {
     const [cashierData, playerData, dailyReport] = await Promise.all([
       getAllCashiers(),
       getAllPlayersApi(),
-      getDailyReport(START_OF_TODAY, END_OF_TODAY),
+      getDailyReport(START_OF_BUSINESS_DAY, END_OF_BUSINESS_DAY),
+      console.log(
+        "Fetching daily report for:",
+        START_OF_BUSINESS_DAY,
+        END_OF_BUSINESS_DAY
+      ),
+      // getDailyReport(START_OF_TODAY, END_OF_TODAY),
     ]);
 
     setCashiers(cashierData);
@@ -200,10 +211,20 @@ export default function Home() {
   useEffect(() => {
     if (!user) return;
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    refreshData();
+    if (user) {
+      (async () => {
+        await refreshData();
+      })();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  useEffect(() => {
+    if (mounted) {
+      if (!user) router.push("/login");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, mounted]);
 
   const canAdmin = user?.role === "supervisor" || user?.role === "manager";
   const canReports = user?.role === "manager" || user?.role === "supervisor";
@@ -211,6 +232,7 @@ export default function Home() {
   const navItems: { id: View; icon: React.ElementType; label: string }[] = [
     { id: "dashboard", icon: LayoutDashboard, label: "Dashboard" },
     { id: "entry", icon: Plus, label: "Daily Entry" },
+    { id: "players", icon: UsersRound, label: "Registered Players" },
     ...(canReports
       ? [{ id: "reports" as View, icon: BarChart2, label: "Reports" }]
       : []),
@@ -257,6 +279,7 @@ export default function Home() {
     const routes: Partial<Record<View, string>> = {
       dashboard: "/",
       entry: "/daily-entry",
+      players: "/registered-players",
       reports: "/reports",
       admin: "/administration",
     };
@@ -274,6 +297,19 @@ export default function Home() {
     []
   );
 
+  // Loader
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center px-4">
+        <div className="w-72">
+          <div className="text-center mb-10">
+            <p className="text-sm text-muted-foreground">Please log in...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!mounted) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center px-4">
@@ -285,8 +321,6 @@ export default function Home() {
       </div>
     );
   }
-
-  if (!user) return <LoginScreen onLogin={handleLogin} />;
 
   return (
     <div className="min-h-screen h-screen bg-background flex overflow-hidden">
@@ -341,9 +375,11 @@ export default function Home() {
 
         <div className="p-2.5 border-t border-border">
           <div className="px-2.5 py-2 mb-1">
-            <p className="text-xs font-semibold text-foreground">{user.name}</p>
+            <p className="text-xs font-semibold text-foreground">
+              {user?.name}
+            </p>
             <p className="text-xs text-muted-foreground capitalize font-mono">
-              {user.role}
+              {user?.role}
             </p>
           </div>
 
@@ -360,7 +396,7 @@ export default function Home() {
         <DailyEntryView
           players={players}
           setPlayers={setPlayers}
-          user={user}
+          user={user as Cashier}
           apiPlayers={apiPlayers}
           onDataChange={refreshData}
           onTransactionCreated={addSessionTransaction}

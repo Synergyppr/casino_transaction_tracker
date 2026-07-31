@@ -9,6 +9,8 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  ArrowRight,
+  Minus,
   ChevronLeft,
   ChevronRight,
   Search,
@@ -136,8 +138,70 @@ function getChangedLogValues(oldValuesJson: unknown, newValuesJson: unknown) {
   );
 }
 
-function formatChangedLogValues(values: ParsedLogValues) {
-  return Object.keys(values).length > 0 ? JSON.stringify(values, null, 2) : "—";
+const LOG_FIELD_LABELS: Record<string, string> = {
+  direction: "Direction",
+  amount: "Amount",
+  category: "Category",
+  status: "Status",
+  date: "Date",
+  time: "Time",
+  playerId: "Player",
+  cashierId: "Cashier",
+  createdByCashierId: "Created By",
+  updatedByCashierId: "Updated By",
+};
+
+function formatLogFieldName(key: string) {
+  if (LOG_FIELD_LABELS[key]) return LOG_FIELD_LABELS[key];
+
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function formatLogValue(key: string, value: unknown): string {
+  if (value === null || value === undefined || value === "") return "Empty";
+
+  if (key === "amount") {
+    const amount = Number(value);
+    return Number.isFinite(amount) ? fmt(amount) : String(value);
+  }
+
+  if (key === "direction") {
+    if (value === "incoming") return "Cash In";
+    if (value === "outgoing") return "Cash Out";
+  }
+
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+
+  if (Array.isArray(value)) {
+    return value.length > 0
+      ? value.map((item) => String(item)).join(", ")
+      : "Empty";
+  }
+
+  if (typeof value === "object") return JSON.stringify(value, null, 2);
+
+  return String(value);
+}
+
+function getChangedFieldRows(
+  oldValues: ParsedLogValues,
+  newValues: ParsedLogValues
+) {
+  const keys = Array.from(
+    new Set([...Object.keys(oldValues), ...Object.keys(newValues)])
+  );
+
+  return keys.map((key) => ({
+    key,
+    label: formatLogFieldName(key),
+    oldValue: oldValues[key],
+    newValue: newValues[key],
+    hasOldValue: Object.prototype.hasOwnProperty.call(oldValues, key),
+    hasNewValue: Object.prototype.hasOwnProperty.call(newValues, key),
+  }));
 }
 
 function normalizeTransactionLogsResponse(response: unknown): TransactionLog[] {
@@ -1268,6 +1332,10 @@ export function ReportsView({
                   log.oldValuesJson,
                   log.newValuesJson
                 );
+                const changedFieldRows = getChangedFieldRows(
+                  changedValues.oldValues,
+                  changedValues.newValues
+                );
                 const values = changedValues.newValues;
                 const changedBy =
                   cashiers.find((c) => c.id === log.changedByCashierId)?.name ??
@@ -1319,24 +1387,82 @@ export function ReportsView({
                         </p>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
-                          <p className="text-[11px] text-muted-foreground font-mono uppercase tracking-wider mb-1">
-                            Old Values
+                      <div>
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <p className="text-[11px] text-muted-foreground font-mono uppercase tracking-wider">
+                            Changes
                           </p>
-                          <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-sm bg-secondary/60 border border-border p-2 text-[11px] leading-relaxed text-muted-foreground font-mono">
-                            {formatChangedLogValues(changedValues?.oldValues)}
-                          </pre>
+
+                          <span className="rounded-full border border-border bg-secondary/50 px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
+                            {changedFieldRows.length}{" "}
+                            {changedFieldRows.length === 1 ? "field" : "fields"}
+                          </span>
                         </div>
 
-                        <div>
-                          <p className="text-[11px] text-muted-foreground font-mono uppercase tracking-wider mb-1">
-                            New Values
-                          </p>
-                          <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-sm bg-secondary/60 border border-border p-2 text-[11px] leading-relaxed text-muted-foreground font-mono">
-                            {formatChangedLogValues(changedValues?.newValues)}
-                          </pre>
-                        </div>
+                        {changedFieldRows.length === 0 ? (
+                          <div className="flex items-center justify-center gap-2 rounded-sm border border-border bg-secondary/30 px-3 py-5 text-xs text-muted-foreground">
+                            <Minus size={13} />
+                            No value changes were recorded.
+                          </div>
+                        ) : (
+                          <div className="overflow-hidden rounded-sm border border-border">
+                            {changedFieldRows.map((field, index) => {
+                              const oldDisplayValue = field.hasOldValue
+                                ? formatLogValue(field.key, field.oldValue)
+                                : "Not set";
+                              const newDisplayValue = field.hasNewValue
+                                ? formatLogValue(field.key, field.newValue)
+                                : "Removed";
+
+                              return (
+                                <div
+                                  key={field.key}
+                                  className={`p-3 ${
+                                    index !== changedFieldRows.length - 1
+                                      ? "border-b border-border"
+                                      : ""
+                                  }`}
+                                >
+                                  <p className="mb-2 text-xs font-semibold text-foreground">
+                                    {field.label}
+                                  </p>
+
+                                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-stretch">
+                                    <div className="min-w-0 rounded-sm border border-rose-500/20 bg-rose-500/5 p-2.5">
+                                      <p className="mb-1 text-[9px] font-mono uppercase tracking-wider text-rose-400">
+                                        Previous
+                                      </p>
+                                      <p
+                                        className="break-words whitespace-pre-wrap text-xs text-muted-foreground"
+                                        title={oldDisplayValue}
+                                      >
+                                        {oldDisplayValue}
+                                      </p>
+                                    </div>
+
+                                    <div className="flex items-center justify-center">
+                                      <div className="flex size-7 rotate-90 items-center justify-center rounded-full border border-border bg-secondary text-muted-foreground sm:rotate-0">
+                                        <ArrowRight size={13} />
+                                      </div>
+                                    </div>
+
+                                    <div className="min-w-0 rounded-sm border border-emerald-500/20 bg-emerald-500/5 p-2.5">
+                                      <p className="mb-1 text-[9px] font-mono uppercase tracking-wider text-emerald-400">
+                                        Updated
+                                      </p>
+                                      <p
+                                        className="break-words whitespace-pre-wrap text-xs font-medium text-foreground"
+                                        title={newDisplayValue}
+                                      >
+                                        {newDisplayValue}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex items-center justify-between gap-3 pt-1">

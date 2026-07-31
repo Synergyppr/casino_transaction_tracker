@@ -82,6 +82,13 @@ export async function deleteCashierApi(id: string): Promise<void> {
 
 // ─── Players ───────────────────────────────────────────
 
+export async function getAllRegisteredPlayers(): Promise<Player[]> {
+  const res = await post<ApiPlayer[]>("/players/get-all-registered");
+  if (res.status !== "200" || !res.data) return [];
+
+  return res.data.map((apiPlayer) => mapApiPlayer(apiPlayer));
+}
+
 export async function getAllPlayersApi(): Promise<ApiPlayer[]> {
   const res = await post<ApiPlayer[]>("/players/get-all");
   if (res.status !== "200" || !res.data) return [];
@@ -176,13 +183,24 @@ export async function lockTransactionApi(transactionId: string): Promise<void> {
 
 export async function getDailyReport(
   startDateTime: string,
-  endDateTime: string 
+  endDateTime: string
 ): Promise<ApiDailyReport | null> {
   console.log("Fetching daily report for business date:", startDateTime);
-  const res = await post<ApiDailyReport>("/GetDailyReportByBusinessDate", {
+
+  const payload = {
     startDateTime,
     endDateTime,
-  });
+  };
+
+  // const payload = {
+  //   startDateTime: "2026-07-30T07:04:00.000Z",
+  //   endDateTime: "2026-07-31T07:04:00.000Z",
+  // };
+
+  const res = await post<ApiDailyReport>(
+    "/GetDailyReportByBusinessDate",
+    payload
+  );
   if (res.status !== "200" || !res.data) return null;
 
   console.log("Fetched daily report:", res.data);
@@ -235,6 +253,7 @@ export function mapApiTransaction(api: ApiTransaction): Transaction {
     cashierName: api.cashierName,
     status: api.status as AlertStatus,
     referenceNumber: api.referenceNumber,
+    date: api.date,
   };
 }
 

@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import type { Cashier } from "./lib/types";
-import { LoginScreen } from "./components/LoginScreen";
 import { MainApp } from "./components/MainApp";
 
 const SESSION_KEY = "casino_session";
@@ -34,6 +34,7 @@ function clearSession() {
 }
 
 export default function Home() {
+  const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [user, setUser] = useState<Cashier | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -47,14 +48,16 @@ export default function Home() {
     initializeSession();
   }, []);
 
+  useEffect(() => {
+    if (mounted) {
+      if (!user) router.push("/login");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, mounted]);
+
   const logout = useCallback(() => {
     clearSession();
     setUser(null);
-  }, []);
-
-  const handleLogin = useCallback((cashier: Cashier) => {
-    saveSession(cashier);
-    setUser(cashier);
   }, []);
 
   useEffect(() => {
@@ -76,6 +79,19 @@ export default function Home() {
     };
   }, [mounted, user, logout]);
 
+  // Loader
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center px-4">
+        <div className="w-72">
+          <div className="text-center mb-10">
+            <p className="text-sm text-muted-foreground">Please log in...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!mounted) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center px-4">
@@ -88,7 +104,5 @@ export default function Home() {
     );
   }
 
-  if (!user) return <LoginScreen onLogin={handleLogin} />;
-
-  return <MainApp user={user} onLogout={logout} />;
+  return <MainApp user={user as Cashier} onLogout={logout} />;
 }

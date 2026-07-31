@@ -3,6 +3,7 @@ import { useState } from "react";
 import {
   CheckCircle2,
   Loader2,
+  KeyRound,
   Lock,
   Pencil,
   Unlock,
@@ -42,6 +43,10 @@ export function AdminView({
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState<"active" | "inactive">("active");
   const [successMessage, setSuccessMessage] = useState("");
+  const [resetPinModal, setResetPinModal] = useState<Cashier | null>(null);
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [resetPinError, setResetPinError] = useState("");
 
   const filtered = cashiers.filter((c) =>
     tab === "active" ? c.active : !c.active
@@ -52,23 +57,95 @@ export function AdminView({
     window.setTimeout(() => setSuccessMessage(""), 2500);
   }
 
+  function closeResetPinModal() {
+    if (saving) return;
+
+    setResetPinModal(null);
+    setNewPin("");
+    setConfirmPin("");
+    setResetPinError("");
+  }
+
+  function openResetPinModal(c: Cashier) {
+    setResetPinModal(c);
+    setNewPin("");
+    setConfirmPin("");
+    setResetPinError("");
+  }
+
   async function toggleActive(c: Cashier) {
+    // Reactivation requires a new PIN, so inactive cashiers use the reset modal.
+    if (!c.active) {
+      openResetPinModal(c);
+      return;
+    }
+
     setSaving(true);
 
     try {
       await toggleCashierActiveApi(c, user.name);
 
       setCashiers((prev) =>
-        prev.map((x) => (x.id === c.id ? { ...x, active: !x.active } : x))
+        prev.map((x) => (x.id === c.id ? { ...x, active: false } : x))
       );
 
       await onDataChange();
-
-      showSuccess(
-        `Cashier ${c.active ? "deactivated" : "activated"} successfully.`
-      );
+      showSuccess("Cashier deactivated successfully.");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to update cashier");
+      alert(err instanceof Error ? err.message : "Failed to deactivate cashier");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function submitReactivation() {
+    if (!resetPinModal || saving) return;
+
+    if (!/^\d{4}$/.test(newPin)) {
+      setResetPinError("Enter a valid 4-digit PIN.");
+      return;
+    }
+
+    if (newPin !== confirmPin) {
+      setResetPinError("PINs do not match.");
+      return;
+    }
+
+    setSaving(true);
+    setResetPinError("");
+
+    try {
+      const reactivationDraft: EditCashierDraft = {
+        ...buildEditDraft(resetPinModal),
+        active: true,
+        pin: newPin,
+      };
+
+      await updateCashierFromDraft(reactivationDraft, user.name);
+
+      setCashiers((prev) =>
+        prev.map((cashier) =>
+          cashier.id === resetPinModal.id
+            ? { ...cashier, active: true }
+            : cashier
+        )
+      );
+
+      const cashierName = resetPinModal.name;
+
+      setResetPinModal(null);
+      setNewPin("");
+      setConfirmPin("");
+      setResetPinError("");
+
+      await onDataChange();
+      showSuccess(`${cashierName} was reactivated and the PIN was reset.`);
+    } catch (err) {
+      setResetPinError(
+        err instanceof Error
+          ? err.message
+          : "Failed to reactivate cashier and reset PIN"
+      );
     } finally {
       setSaving(false);
     }
@@ -425,6 +502,129 @@ export function AdminView({
             <button
               onClick={() => setAddModal(false)}
               className="flex-1 h-9 bg-secondary border border-border rounded-sm text-sm text-foreground hover:bg-accent/10 transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {resetPinModal && (
+        <Modal onClose={closeResetPinModal}>
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-sm border border-emerald-500/25 bg-emerald-500/10 text-emerald-400">
+                <KeyRound size={16} />
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold">Reactivate Cashier</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Reset the PIN for {resetPinModal.name}.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={closeResetPinModal}
+              disabled={saving}
+              className="text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+              aria-label="Close PIN reset modal"
+            >
+              <X size={15} />
+            </button>
+          </div>
+
+          <div className="mb-5 rounded-sm border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-300">
+            Reactivating this cashier requires a new 4-digit PIN. The previous
+            PIN will no longer work.
+          </div>
+
+          <div className="space-y-4 mb-5">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider">
+                New PIN
+              </label>
+              <input
+                type="password"
+                inputMode="numeric"
+                autoComplete="new-password"
+                autoFocus
+                value={newPin}
+                onChange={(e) => {
+                  setNewPin(e.target.value.replace(/\D/g, "").slice(0, 4));
+                  setResetPinError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && newPin.length === 4 && confirmPin.length === 4) {
+                    void submitReactivation();
+                  }
+                }}
+                placeholder="_ _ _ _"
+                maxLength={4}
+                disabled={saving}
+                className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm font-mono tracking-[0.35em] text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-60"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider">
+                Confirm New PIN
+              </label>
+              <input
+                type="password"
+                inputMode="numeric"
+                autoComplete="new-password"
+                value={confirmPin}
+                onChange={(e) => {
+                  setConfirmPin(
+                    e.target.value.replace(/\D/g, "").slice(0, 4)
+                  );
+                  setResetPinError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && newPin.length === 4 && confirmPin.length === 4) {
+                    void submitReactivation();
+                  }
+                }}
+                placeholder="_ _ _ _"
+                maxLength={4}
+                disabled={saving}
+                className="w-full h-9 px-3 bg-secondary border border-border rounded-sm text-sm font-mono tracking-[0.35em] text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-60"
+              />
+            </div>
+
+            {resetPinError && (
+              <p className="text-xs text-destructive">{resetPinError}</p>
+            )}
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => void submitReactivation()}
+              disabled={
+                saving ||
+                newPin.length !== 4 ||
+                confirmPin.length !== 4 ||
+                newPin !== confirmPin
+              }
+              className="flex-1 h-9 bg-emerald-600 text-white rounded-sm text-sm font-medium hover:bg-emerald-600/85 transition-colors disabled:cursor-not-allowed disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+            >
+              {saving ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <Unlock size={13} />
+              )}
+              Reactivate & Reset PIN
+            </button>
+
+            <button
+              type="button"
+              onClick={closeResetPinModal}
+              disabled={saving}
+              className="flex-1 h-9 bg-secondary border border-border rounded-sm text-sm text-foreground hover:bg-accent/10 transition-colors disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
             >
               Cancel
             </button>

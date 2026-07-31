@@ -36,6 +36,7 @@ export interface Transaction {
   cashierName?: string;
   status?: AlertStatus;
   referenceNumber?: string;
+  date?: string;
 }
 
 export interface CreatePlayer {
@@ -107,6 +108,7 @@ export interface ApiTransaction {
   correlationId: string;
   timestamp?: string;
   createdBy?: string;
+  date?: string;
 }
 
 export interface ApiDailyReport {

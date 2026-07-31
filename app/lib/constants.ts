@@ -3,6 +3,8 @@ import type { Cashier, Player } from "./types";
 export const WARNING_THRESHOLD = 7500;
 export const COMPLIANCE_THRESHOLD = 10000;
 
+const PR_TIMEZONE = "T08:00:00.000Z"
+
 export const CASH_IN_TYPES = [
   "Deposit(s)",
   "Payment(s)",
@@ -47,8 +49,32 @@ export const TODAY = new Intl.DateTimeFormat("en-CA", {
 }).format(new Date());
 
 export const START_OF_TODAY = `${TODAY}T00:00:00`;
-
 export const END_OF_TODAY = `${TODAY}T23:59:59.999`;
+
+
+function addDaysToDate(date: string, days: number): string {
+  const [year, month, day] = date.split("-").map(Number);
+
+  const result = new Date(Date.UTC(year, month - 1, day + days));
+
+  return result.toISOString().split("T")[0];
+}
+
+
+export const YESTERDAY = addDaysToDate(TODAY, -1);
+export const TOMORROW = addDaysToDate(TODAY, 1);
+export const DAY_AFTER_TOMORROW = addDaysToDate(TODAY, 2);
+
+/**
+ * Casino business-day period:
+ * Today at 4:00 AM through tomorrow at 4:00 AM.
+ */
+
+// export const START_OF_BUSINESS_DAY = `${YESTERDAY}${PR_TIMEZONE}`;
+// export const END_OF_BUSINESS_DAY = `${TODAY}${PR_TIMEZONE}`;
+
+export const START_OF_BUSINESS_DAY = `${TODAY}T00:00:00`;
+export const END_OF_BUSINESS_DAY = `${TODAY}T23:59:59.999`;
 
 export function getSeedPlayers(): Player[] {
   return [

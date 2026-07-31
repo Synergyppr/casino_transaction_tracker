@@ -10,16 +10,23 @@ import {
   LogOut,
   Shield,
   Loader2,
+  UsersRound,
 } from "lucide-react";
 import type { Cashier, Player, ApiPlayer, Transaction } from "../lib/types";
-import { TODAY, START_OF_TODAY, END_OF_TODAY } from "../lib/constants";
-import { getPlayerTotals, getStatus } from "../lib/utils";
+import {
+  // START_OF_TODAY,
+  // END_OF_TODAY,
+  END_OF_BUSINESS_DAY,
+  START_OF_BUSINESS_DAY,
+  TODAY,
+} from "../lib/constants";import { getPlayerTotals, getStatus } from "../lib/utils";
 import { getAllCashiers, getAllPlayersApi, getDailyReport } from "../lib/api";
 import { DashboardView } from "./DashboardView";
 
 export type View =
   | "dashboard"
   | "entry"
+  | "players"
   | "monitoring"
   | "reports"
   | "admin"
@@ -52,7 +59,8 @@ export function MainApp({
     const [cashierData, playerData, dailyReport] = await Promise.all([
       getAllCashiers(),
       getAllPlayersApi(),
-      getDailyReport(START_OF_TODAY, END_OF_TODAY),
+      getDailyReport(START_OF_BUSINESS_DAY, END_OF_BUSINESS_DAY),
+      // getDailyReport(START_OF_TODAY, END_OF_TODAY),
     ]);
 
     console.log("Fetched data:", {
@@ -168,6 +176,7 @@ export function MainApp({
   const navItems: { id: View; icon: React.ElementType; label: string }[] = [
     { id: "dashboard", icon: LayoutDashboard, label: "Dashboard" },
     { id: "entry", icon: Plus, label: "Daily Entry" },
+    { id: "players", icon: UsersRound, label: "Registered Players" },
     ...(canReports
       ? [{ id: "reports" as View, icon: BarChart2, label: "Reports" }]
       : []),
@@ -214,6 +223,7 @@ export function MainApp({
     const routes: Partial<Record<View, string>> = {
       dashboard: "/",
       entry: "/daily-entry",
+      players: "/registered-players",
       reports: "/reports",
       admin: "/administration",
     };

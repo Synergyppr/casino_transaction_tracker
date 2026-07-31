@@ -20,6 +20,8 @@ const ManageTransactionModal = ({
   setCashOutCategory,
   saving,
   submitTxn,
+  submitDisabled,
+  hasChanges,
 }: {
   txnModal: TxnDraft | null;
   setTxnModal: React.Dispatch<React.SetStateAction<TxnDraft | null>>;
@@ -35,6 +37,8 @@ const ManageTransactionModal = ({
   setCashOutCategory: (value: string) => void;
   saving: boolean;
   submitTxn: () => void;
+  submitDisabled: boolean;
+  hasChanges: boolean;
 }) => {
   return (
     <Modal
@@ -53,6 +57,13 @@ const ManageTransactionModal = ({
           <p className="text-xs text-muted-foreground mt-0.5">
             {txnModal?.playerName}
           </p>
+          {/* <p>{txnModal?.timestamp || txnModal?.date || "Date"}</p> */}
+          {txnModal?.updatedAt && txnModal?.updatedByCashierId && (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Last updated on {txnModal.updatedAt} by{" "}
+              {txnModal.updatedByCashierId}
+            </p>
+          )}
         </div>
 
         <button
@@ -260,9 +271,9 @@ const ManageTransactionModal = ({
           />
         </div>
 
-        {txnError && (
+        {/* {txnError && (
           <p className="text-xs text-destructive mt-1.5">{txnError}</p>
-        )}
+        )} */}
       </div>
 
       {txnModal?.mode === "update" && (
@@ -343,10 +354,16 @@ const ManageTransactionModal = ({
         </div>
       )}
 
+      {txnError && (
+        <p className="text-xs text-destructive mt-0 mb-4 relative bottom-2">
+          {txnError}
+        </p>
+      )}
+
       <div className="flex gap-2">
         <button
           onClick={submitTxn}
-          disabled={saving}
+          disabled={saving || submitDisabled || !hasChanges}
           className="flex-1 h-9 bg-accent text-white rounded-sm text-sm font-medium hover:bg-accent/85 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
         >
           {saving && <Loader2 size={13} className="animate-spin" />}

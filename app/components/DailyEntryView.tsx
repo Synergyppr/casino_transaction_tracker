@@ -48,6 +48,15 @@ export interface TxnDraft {
   amount: string;
   notes?: string;
   reason?: string;
+  date?: string;
+  originalCategory?: string;
+  originalAmount?: string;
+  originalNotes?: string;
+  // Adding
+  createdAt?: string;
+  createdByCashierId?: string;
+  updatedAt?: string;
+  updatedByCashierId?: string;
 }
 
 export interface PlayerDraft {
@@ -491,6 +500,8 @@ export function DailyEntryView({
   }
 
   function openTxn(p: Player, txn?: Transaction) {
+    console.log("openTxn called with player:", p, "and transaction:", txn);
+
     const direction = txn?.direction || "incoming";
     const category =
       txn?.category ||
@@ -511,10 +522,58 @@ export function DailyEntryView({
       playerName: p.name,
       direction,
       category,
-      amount: txn?.amount ? String(txn.amount) : "",
+      amount: txn?.amount != null ? String(txn.amount) : "",
+      notes:
+        (txn as (Transaction & { notes?: string | null }) | undefined)?.notes ||
+        "",
+      date: txn?.timestamp ? getDateOnly(txn.timestamp) : TODAY,
+      originalCategory: txn?.category || "",
+      originalAmount: txn?.amount != null ? String(txn.amount) : "",
+      originalNotes:
+        (txn as (Transaction & { notes?: string | null }) | undefined)?.notes ||
+        "",
+      // createdAt: txn?.createdAt,
+      // createdByCashierId: txn?.createdByCashierId,
+      // updatedAt: txn?.updatedAt,
+      // updatedByCashierId: txn?.updatedByCashierId,
     });
     setTxnError("");
   }
+
+  const effectiveTxnCategory = useMemo(() => {
+    if (!txnModal) return "";
+
+    return txnModal.category.includes("Other")
+      ? customCategory.trim() || txnModal.category.trim()
+      : txnModal.category.trim();
+  }, [txnModal, customCategory]);
+
+  const hasTransactionChanges = useMemo(() => {
+    if (!txnModal || txnModal.mode !== "update") return true;
+
+    const currentAmount = Number.parseFloat(txnModal.amount);
+    const originalAmount = Number.parseFloat(txnModal.originalAmount || "");
+
+    const amountChanged =
+      Number.isFinite(currentAmount) &&
+      Number.isFinite(originalAmount) &&
+      currentAmount !== originalAmount;
+
+    const categoryChanged =
+      effectiveTxnCategory.trim() !==
+      String(txnModal.originalCategory || "").trim();
+
+    const notesChanged =
+      String(txnModal.notes || "").trim() !==
+      String(txnModal.originalNotes || "").trim();
+
+    return categoryChanged || amountChanged || notesChanged;
+  }, [txnModal, effectiveTxnCategory]);
+
+  const isTxnSubmitDisabled =
+    saving ||
+    !txnModal ||
+    (txnModal.mode === "update" && !hasTransactionChanges);
 
   const validate = () => {
     if (!txnModal) return false;
@@ -526,12 +585,20 @@ export function DailyEntryView({
       return false;
     }
 
-    // Require notes and reason if updating
+    // An update must modify category, notes, or amount.
+    if (txnModal.mode === "update" && !hasTransactionChanges) {
+      setTxnError(
+        "Change the category, notes, or amount before updating the transaction."
+      );
+      return false;
+    }
+
+    // Require a reason when updating.
     if (txnModal.mode === "update") {
-      if (!txnModal.notes?.trim()) {
-        setTxnError("Please provide notes for the update.");
-        return false;
-      }
+      // if (!txnModal.notes?.trim()) {
+      //   setTxnError("Please provide notes for the update.");
+      //   return false;
+      // }
 
       if (!txnModal.reason?.trim()) {
         setTxnError("Please provide a reason for the update.");
@@ -542,11 +609,20 @@ export function DailyEntryView({
     return true;
   };
 
+  // Submit Transaction
   async function submitTxn() {
-    const amt = parseFloat(txnModal?.amount as string);
+    if (!txnModal || isTxnSubmitDisabled) {
+      if (txnModal?.mode === "update" && !hasTransactionChanges) {
+        setTxnError(
+          "Change the category, notes, or amount before updating the transaction."
+        );
+      }
+      return;
+    }
 
-    validate();
-    if (validate() === false || !txnModal) return;
+    if (!validate()) return;
+
+    const amt = Number.parseFloat(txnModal.amount);
 
     setSaving(true);
 
@@ -556,9 +632,7 @@ export function DailyEntryView({
           id: txnModal.id,
           updatedByCashierId: user.id,
           direction: txnModal.direction,
-          category: txnModal?.category?.includes("Other")
-            ? customCategory || txnModal.category
-            : txnModal.category,
+          category: effectiveTxnCategory,
           amount: amt,
           status: "updated",
           notes: txnModal.notes || "",
@@ -575,8 +649,11 @@ export function DailyEntryView({
                       ? {
                           ...t,
                           direction: txnModal.direction,
-                          category: txnModal.category,
+                          category: effectiveTxnCategory,
                           amount: amt,
+                          ...({
+                            notes: txnModal.notes || "",
+                          } as Partial<Transaction>),
                         }
                       : t
                   ),
@@ -866,6 +943,8 @@ export function DailyEntryView({
           setCashOutCategory={setCashOutCategory}
           saving={saving}
           submitTxn={submitTxn}
+          submitDisabled={isTxnSubmitDisabled}
+          hasChanges={hasTransactionChanges}
         />
       )}
 

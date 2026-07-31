@@ -1,10 +1,12 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Shield } from "lucide-react";
 import type { Cashier } from "../lib/types";
 import { loginCashier } from "../lib/api";
 
 export function LoginScreen({ onLogin }: { onLogin: (c: Cashier) => void }) {
+  const router = useRouter();
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [shaking, setShaking] = useState(false);
@@ -21,6 +23,7 @@ export function LoginScreen({ onLogin }: { onLogin: (c: Cashier) => void }) {
       try {
         const cashier = await loginCashier(next);
         setTimeout(() => onLogin(cashier), 180);
+        router.push("daily-entry");
       } catch (err) {
         setTimeout(() => {
           setShaking(true);
@@ -50,7 +53,9 @@ export function LoginScreen({ onLogin }: { onLogin: (c: Cashier) => void }) {
           <div className="inline-flex items-center justify-center w-11 h-11 bg-accent/10 border border-accent/20 rounded mb-4">
             <Shield size={20} className="text-accent" />
           </div>
-          <h1 className="text-lg font-semibold text-foreground tracking-tight">Casino del Mar</h1>
+          <h1 className="text-lg font-semibold text-foreground tracking-tight">
+            Casino del Mar
+          </h1>
           <p className="text-xs text-muted-foreground mt-1 font-mono uppercase tracking-widest">
             Player Tracking System
           </p>
@@ -65,14 +70,18 @@ export function LoginScreen({ onLogin }: { onLogin: (c: Cashier) => void }) {
             <div
               key={i}
               className={`w-2.5 h-2.5 rounded-full transition-all duration-150 ${
-                i < pin.length ? "bg-accent scale-110" : "bg-secondary border border-border"
+                i < pin.length
+                  ? "bg-accent scale-110"
+                  : "bg-secondary border border-border"
               }`}
             />
           ))}
         </div>
 
         {error ? (
-          <p className="text-center text-xs text-destructive mb-4 font-mono">{error}</p>
+          <p className="text-center text-xs text-destructive mb-4 font-mono">
+            {error}
+          </p>
         ) : (
           <div className="mb-4 h-4" />
         )}
