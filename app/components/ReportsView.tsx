@@ -28,6 +28,7 @@ import { getDailyReport, getTransactionLogs } from "../lib/api";
 
 import { Modal } from "./Modal";
 import { exportTransactionsToCsv } from "../helpers/exportCsv";
+// import { START_OF_TODAY, END_OF_TODAY } from "../lib/constants";
 
 export type TransactionLog = {
   id: string;
@@ -1433,7 +1434,7 @@ export function ReportsView({
                                         Previous
                                       </p>
                                       <p
-                                        className="break-words whitespace-pre-wrap text-xs text-muted-foreground"
+                                        className="wrap-break-word whitespace-pre-wrap text-xs text-muted-foreground"
                                         title={oldDisplayValue}
                                       >
                                         {oldDisplayValue}
@@ -1451,7 +1452,7 @@ export function ReportsView({
                                         Updated
                                       </p>
                                       <p
-                                        className="break-words whitespace-pre-wrap text-xs font-medium text-foreground"
+                                        className="wrap-break-word whitespace-pre-wrap text-xs font-medium text-foreground"
                                         title={newDisplayValue}
                                       >
                                         {newDisplayValue}

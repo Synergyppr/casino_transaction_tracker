@@ -4,10 +4,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { getAllCashiers, getAllPlayersApi, getDailyReport } from "../lib/api";
 import type { Cashier, Player, ApiPlayer, Transaction } from "../lib/types";
 import {
-  // START_OF_TODAY,
-  // END_OF_TODAY,
-  END_OF_BUSINESS_DAY,
-  START_OF_BUSINESS_DAY,
   TODAY,
 } from "../lib/constants";
 import {
@@ -145,7 +141,7 @@ export default function Home() {
       getAllCashiers(),
       getAllPlayersApi(),
       // getDailyReport(START_OF_TODAY, END_OF_TODAY),
-      getDailyReport(START_OF_BUSINESS_DAY, END_OF_BUSINESS_DAY),
+      getDailyReport(startDate, endDate),
     ]);
 
     setCashiers(cashierData);
@@ -198,7 +194,7 @@ export default function Home() {
     }
 
     return { cashierData, playerData, builtPlayers };
-  }, [selectedDate]);
+  }, [selectedDate, startDate, endDate]);
 
   // Trigger a refresh
   const refreshData = useCallback(async () => {
