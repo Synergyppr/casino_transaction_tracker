@@ -23,7 +23,7 @@ export function AuditView({
           }))
         )
         .sort((a, b) =>
-          (b.date + b.timestamp).localeCompare(a.date + a.timestamp)
+          (b.date + b.date).localeCompare(a.date + a.date)
         ),
     [players, cashiers]
   );
@@ -85,10 +85,10 @@ export function AuditView({
                   }`}
                 >
                   <td className="px-4 py-2.5 text-xs font-mono text-muted-foreground">
-                    {t.date}
+                    {t.date.split(" ")[0]}
                   </td>
                   <td className="px-4 py-2.5 text-xs font-mono text-muted-foreground">
-                    {t.timestamp}
+                    {t.date.split(" ")[1]}
                   </td>
                   <td className="px-4 py-2.5 font-semibold">{t.playerName}</td>
                   <td className="px-4 py-2.5">
