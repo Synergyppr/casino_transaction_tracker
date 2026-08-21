@@ -1,27 +1,20 @@
 "use client";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { getAllCashiers, getAllPlayersApi, getDailyReport } from "../lib/api";
+import { getAllCashiers, getAllPlayersApi } from "../lib/api";
 import type { Cashier, Player, ApiPlayer, Transaction } from "../lib/types";
-import {
-  // START_OF_TODAY,
-  // END_OF_TODAY,
-  END_OF_BUSINESS_DAY,
-  START_OF_BUSINESS_DAY,
-  TODAY,
-} from "../lib/constants";
+import { TODAY } from "../lib/constants";
 import {
   BarChart2,
   LayoutDashboard,
-  LogOut,
   Plus,
   Settings,
-  Shield,
   UsersRound,
 } from "lucide-react";
 import { View } from "../components/MainApp";
 import { getPlayerTotals, getStatus } from "../lib/utils";
 import { DailyEntryView } from "../components/DailyEntryView";
+import Sidebar from "../components/Sidebar";
 
 const SESSION_KEY = "casino_session";
 const TIMEOUT_MS = 60 * 60 * 1000;
@@ -130,64 +123,32 @@ export default function Home() {
   }, [mounted, user, logout]);
 
   const fetchData = useCallback(async () => {
-    const [cashierData, playerData, dailyReport] = await Promise.all([
+    const [cashierData, playerData] = await Promise.all([
       getAllCashiers(),
       getAllPlayersApi(),
-      getDailyReport(START_OF_BUSINESS_DAY, END_OF_BUSINESS_DAY),
-      console.log(
-        "Fetching daily report for:",
-        START_OF_BUSINESS_DAY,
-        END_OF_BUSINESS_DAY
-      ),
-      // getDailyReport(START_OF_TODAY, END_OF_TODAY),
     ]);
 
     setCashiers(cashierData);
 
+    // console.log("GET ALL CASHIERS:", cashierData);
+    // console.log("GET ALL PLAYERS:", playerData);
+
     const builtPlayers: Player[] = [];
 
-    if (dailyReport && dailyReport.playerDetail.length > 0) {
-      for (const pd of dailyReport.playerDetail) {
-        const apiP = playerData.find((p) => p.id === pd.playerId);
+    for (const apiP of playerData) {
+      const pDate = apiP.date ? apiP.date.split("T")[0] : "";
+      const localTxns = sessionTxnsRef.current.get(apiP.id) || [];
 
-        const txns: Transaction[] =
-          pd.transactions?.map((t) => ({
-            id: t.id,
-            direction:
-              t.direction === "outgoing"
-                ? ("outgoing" as const)
-                : ("incoming" as const),
-            category: t.category || "Other",
-            amount: t.amount,
-            timestamp: "",
-            cashierId: t.createdByCashierId || "",
-            playerName: t.playerName,
-            cashierName: t.cashierName,
-          })) || [];
-
+      if (pDate === selectedDate || localTxns.length > 0) {
         builtPlayers.push({
-          id: pd.playerId,
-          name: pd.playerName || apiP?.name || "Unknown",
-          date: selectedDate,
-          transactions: txns,
-          createdBy: dailyReport?.createdBy || "",
+          id: apiP.id,
+          name: apiP.name || "Unknown",
+          // date: selectedDate,
+          date: apiP?.date,
+          transactions: localTxns,
+          createdBy: apiP.createdBy || "",
+          gamerNumber: apiP.gamerNumber,
         });
-      }
-    } else {
-      for (const apiP of playerData) {
-        const pDate = apiP.date ? apiP.date.split("T")[0] : "";
-        const localTxns = sessionTxnsRef.current.get(apiP.id) || [];
-
-        if (pDate === selectedDate || localTxns.length > 0) {
-          builtPlayers.push({
-            id: apiP.id,
-            name: apiP.name || "Unknown",
-            date: selectedDate,
-            transactions: localTxns,
-            createdBy: apiP.createdBy || "",
-            gamerNumber: apiP.gamerNumber,
-          });
-        }
       }
     }
 
@@ -248,7 +209,7 @@ export default function Home() {
         .map((p) => ({
           id: p.id,
           name: p.name || "Unknown",
-          date: p.date?.split("T")[0] || selectedDate,
+          date: p.date?.split("T")[0] || selectedDate, // Ensure 'date' is included
           transactions: (p.transactions || []).map((t) => ({
             id: t.id,
             direction:
@@ -257,7 +218,7 @@ export default function Home() {
                 : ("incoming" as const),
             category: t.category || "Other",
             amount: Number(t.amount) || 0,
-            timestamp: p.date || "",
+            date: p.date || "",
             cashierId: p.createdBy || "",
           })),
           createdBy: p.createdBy || "",
@@ -333,65 +294,16 @@ export default function Home() {
       )}
 
       {/* Sidebar */}
-      <aside
-        className={`fixed lg:sticky lg:top-0 z-50 top-0 left-0 h-screen lg:h-screen w-52 bg-[#0a0e18] border-r border-border flex flex-col shrink-0 transition-transform duration-200 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-        }`}
-      >
-        <div className="px-4 py-4 border-b border-border">
-          <div className="flex items-center gap-2">
-            <Shield size={14} className="text-accent shrink-0" />
-            <span className="text-sm font-semibold tracking-tight text-foreground">
-              Casino del Mar
-            </span>
-          </div>
-          <p className="text-xs text-muted-foreground mt-0.5 font-mono">
-            Player Tracking
-          </p>
-        </div>
+      <Sidebar
+        sidebarOpen={sidebarOpen}
+        handleNav={handleNav}
+        activeView={activeView}
+        navItems={navItems}
+        complianceCount={complianceCount}
+        user={user}
+        logout={logout}
+      />
 
-        <nav className="flex-1 p-2.5 space-y-0.5 overflow-auto">
-          {navItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => handleNav(item)}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-sm text-sm transition-colors cursor-pointer ${
-                activeView === item.id
-                  ? "bg-accent/15 text-accent font-medium"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-              }`}
-            >
-              <item.icon size={14} />
-              <span>{item.label}</span>
-
-              {item.id === "monitoring" && complianceCount > 0 && (
-                <span className="ml-auto text-xs font-mono bg-emerald-500/20 text-emerald-400 px-1.5 rounded-sm">
-                  {complianceCount}
-                </span>
-              )}
-            </button>
-          ))}
-        </nav>
-
-        <div className="p-2.5 border-t border-border">
-          <div className="px-2.5 py-2 mb-1">
-            <p className="text-xs font-semibold text-foreground">
-              {user?.name}
-            </p>
-            <p className="text-xs text-muted-foreground capitalize font-mono">
-              {user?.role}
-            </p>
-          </div>
-
-          <button
-            onClick={logout}
-            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-sm text-sm text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-          >
-            <LogOut size={14} />
-            Sign Out
-          </button>
-        </div>
-      </aside>
       <main className="flex-1 h-screen flex flex-col min-w-0 overflow-hidden">
         <DailyEntryView
           players={players}

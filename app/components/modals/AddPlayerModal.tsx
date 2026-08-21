@@ -29,7 +29,7 @@ const AddPlayerModal = ({
   setPlayerLookupMessage: (value: string) => void;
 }) => {
   return (
-    <Modal onClose={resetPlayerDraft}>
+    <Modal>
       <div className="flex items-center justify-between mb-5">
         <h3 className="text-sm font-semibold">Register Player</h3>
         <button
@@ -83,7 +83,7 @@ const AddPlayerModal = ({
 
         <div>
           <label className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider">
-            Gamer Number (optional)
+          Player Number (optional)
           </label>
           <div className="flex gap-2">
             <input

@@ -30,8 +30,11 @@ async function post<T>(path: string, body?: unknown): Promise<ApiResponse<T>> {
 
 // ─── Cashiers ──────────────────────────────────────────
 
-export async function loginCashier(pin: string): Promise<Cashier> {
-  const res = await post<ApiCashier>("/cashiers/login", { pin });
+export async function loginCashier(
+  pin: string,
+  propertyId: string
+): Promise<Cashier> {
+  const res = await post<ApiCashier>("/cashiers/login", { pin, propertyId });
   if (res.status !== "200" || !res.data) {
     throw new Error(res.message || "Invalid PIN");
   }
@@ -80,6 +83,63 @@ export async function deleteCashierApi(id: string): Promise<void> {
     throw new Error(res.message || "Failed to delete cashier");
 }
 
+// ─── Properties ───────────────────────────────────────────
+
+export interface Property {
+  id: string;
+  name: string;
+}
+
+interface PropertiesApiResponse {
+  status?: string;
+  message?: string;
+  data?: Property[];
+  error?: string;
+}
+
+export async function getAllProperties(
+  signal?: AbortSignal
+): Promise<Property[]> {
+  const response = await fetch("/api/CasinoPlayerTracking/properties/get-all", {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+    credentials: "include",
+    cache: "no-store",
+    signal,
+  });
+
+  let payload: PropertiesApiResponse | Property[] | null = null;
+
+  try {
+    payload = (await response.json()) as PropertiesApiResponse | Property[];
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    const apiPayload = payload as PropertiesApiResponse | null;
+
+    throw new Error(
+      apiPayload?.message ||
+        apiPayload?.error ||
+        `Failed to load properties (${response.status}).`
+    );
+  }
+
+  const properties = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.data)
+    ? payload.data
+    : [];
+
+  return properties.map((property) => ({
+    id: property.id,
+    name: property.name || "Unknown Property",
+  }));
+}
+
 // ─── Players ───────────────────────────────────────────
 
 export async function getAllRegisteredPlayers(): Promise<Player[]> {
@@ -93,6 +153,8 @@ export async function getAllPlayersApi(): Promise<ApiPlayer[]> {
   const res = await post<ApiPlayer[]>("/players/get-all");
   if (res.status !== "200" || !res.data) return [];
 
+  // Being used in Dashboard View
+
   // console.log("Fetched players:", res.data);
   return res.data;
 }
@@ -104,6 +166,9 @@ export async function getPlayerByGamerNumber(
     gamerNumber,
   });
   if (res.status !== "200" || !res.data) return null;
+
+  console.log("Fetched players by gamer number:", res.data);
+
   return res.data;
 }
 
@@ -138,6 +203,7 @@ export async function updatePlayerApi(data: {
 
 export async function createTransactionApi(data: {
   playerId: string;
+  propertyId: string;
   createdByCashierId: string;
   direction: string;
   category: string;
@@ -181,21 +247,12 @@ export async function lockTransactionApi(transactionId: string): Promise<void> {
 
 // ─── Daily Report ──────────────────────────────────────
 
-export async function getDailyReport(
-  startDateTime: string,
-  endDateTime: string
-): Promise<ApiDailyReport | null> {
-  console.log("Fetching daily report for business date:", startDateTime);
-
-  const payload = {
-    startDateTime,
-    endDateTime,
-  };
-
-  // const payload = {
-  //   startDateTime: "2026-07-30T07:04:00.000Z",
-  //   endDateTime: "2026-07-31T07:04:00.000Z",
-  // };
+export async function getDailyReport(payload: {
+  propertyId: string;
+  startDateTime: string;
+  endDateTime: string;
+}): Promise<ApiDailyReport | null> {
+  // console.log("Fetching daily report for business date:", payload);
 
   const res = await post<ApiDailyReport>(
     "/GetDailyReportByBusinessDate",
@@ -203,7 +260,7 @@ export async function getDailyReport(
   );
   if (res.status !== "200" || !res.data) return null;
 
-  console.log("Fetched daily report:", res.data);
+  // console.log("Fetched daily report:", res.data);
   return res.data;
 }
 
@@ -235,6 +292,8 @@ function mapCashier(api: ApiCashier): Cashier {
 }
 
 export function mapApiTransaction(api: ApiTransaction): Transaction {
+  // console.log("Mapping API transaction:", api);
+
   return {
     id: api.id,
     direction: (api.direction === "outgoing"
@@ -242,11 +301,6 @@ export function mapApiTransaction(api: ApiTransaction): Transaction {
       : "incoming") as Direction,
     category: api.category || "Other",
     amount: api.amount,
-    timestamp: new Date().toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }),
     cashierId: api.createdByCashierId || "",
     playerId: api.playerId,
     playerName: api.playerName,

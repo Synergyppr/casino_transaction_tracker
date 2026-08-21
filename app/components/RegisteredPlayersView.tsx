@@ -312,7 +312,7 @@ export default function RegisteredPlayersView() {
 
   return (
     <div className="h-full overflow-y-auto p-4 sm:p-5">
-      <div className="mx-auto w-full max-w-7xl space-y-5">
+      <div className="mx-auto w-full space-y-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="flex items-center gap-2">
@@ -584,7 +584,7 @@ function PlayerRows({
         <td className="px-3 py-3">
           <p className="font-semibold text-foreground">{player.name}</p>
           <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
-            {player.gamerNumber || "No gamer number"}
+            {player.gamerNumber || "No player number"}
           </p>
         </td>
 

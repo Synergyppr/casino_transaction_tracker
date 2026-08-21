@@ -29,7 +29,6 @@ export interface Transaction {
   direction: Direction;
   category: string;
   amount: number;
-  timestamp: string;
   cashierId: string;
   playerId?: string;
   playerName?: string;
@@ -86,7 +85,6 @@ export interface ApiPlayer {
   phone: string | null;
   active: boolean;
   direction?: string | null;
-  timestamp?: string | null;
 }
 
 // Create Transaction Request
@@ -106,7 +104,6 @@ export interface ApiTransaction {
   lockedByCashierId: string | null;
   correctionOfTransactionId: string | null;
   correlationId: string;
-  timestamp?: string;
   createdBy?: string;
   date?: string;
 }

@@ -7,21 +7,15 @@ import {
   Plus,
   BarChart2,
   Settings,
-  LogOut,
-  Shield,
   Loader2,
   UsersRound,
 } from "lucide-react";
 import type { Cashier, Player, ApiPlayer, Transaction } from "../lib/types";
-import {
-  // START_OF_TODAY,
-  // END_OF_TODAY,
-  END_OF_BUSINESS_DAY,
-  START_OF_BUSINESS_DAY,
-  TODAY,
-} from "../lib/constants";import { getPlayerTotals, getStatus } from "../lib/utils";
-import { getAllCashiers, getAllPlayersApi, getDailyReport } from "../lib/api";
+import { TODAY } from "../lib/constants";
+import { getPlayerTotals, getStatus } from "../lib/utils";
+import { getAllPlayersApi } from "../lib/api";
 import { DashboardView } from "./DashboardView";
+import Sidebar from "./Sidebar";
 
 export type View =
   | "dashboard"
@@ -32,6 +26,7 @@ export type View =
   | "admin"
   | "audit";
 
+// Dashboard View
 export function MainApp({
   user,
   onLogout,
@@ -43,7 +38,7 @@ export function MainApp({
   const pathname = usePathname();
 
   const [, setPlayers] = useState<Player[]>([]);
-  const [cashiers, setCashiers] = useState<Cashier[]>([]);
+  const [cashiers] = useState<Cashier[]>([]);
   const [apiPlayers, setApiPlayers] = useState<ApiPlayer[]>([]);
   const [selectedDate] = useState(TODAY);
 
@@ -56,81 +51,34 @@ export function MainApp({
 
   // Pure data fetch — returns data without setting state
   const fetchData = useCallback(async () => {
-    const [cashierData, playerData, dailyReport] = await Promise.all([
-      getAllCashiers(),
-      getAllPlayersApi(),
-      getDailyReport(START_OF_BUSINESS_DAY, END_OF_BUSINESS_DAY),
-      // getDailyReport(START_OF_TODAY, END_OF_TODAY),
-    ]);
-
-    console.log("Fetched data:", {
-      cashiers: cashierData,
-      apiPlayers: playerData,
-      dailyReport,
-    });
+    const [playerData] = await Promise.all([getAllPlayersApi()]);
 
     const builtPlayers: Player[] = [];
 
-    if (dailyReport && dailyReport.playerDetail.length > 0) {
-      for (const pd of dailyReport.playerDetail) {
-        const apiP = playerData.find((p) => p.id === pd.playerId);
+    for (const apiP of playerData) {
+      const pDate = apiP.date ? apiP.date.split("T")[0] : "";
+      const localTxns = sessionTxnsRef.current.get(apiP.id) || [];
 
-        // console.log("Building player:", playerData, pd, apiP);
-
-        const txns: Transaction[] =
-          pd.transactions?.map((t) => ({
-            id: t.id,
-            direction:
-              t.direction === "outgoing"
-                ? ("outgoing" as const)
-                : ("incoming" as const),
-            category: t.category || "Other",
-            amount: t.amount,
-            timestamp: "",
-            cashierId: t.createdByCashierId || "",
-            playerName: t.playerName,
-            cashierName: t.cashierName,
-          })) || [];
-
-        // console.log("Building player:", playerData, pd, apiP);
-
+      if (pDate === selectedDate || localTxns.length > 0) {
         builtPlayers.push({
-          id: pd.playerId,
-          name: pd.playerName || apiP?.name || "Unknown",
+          id: apiP.id,
+          name: apiP.name || "Unknown",
           date: selectedDate,
-          transactions: txns,
-          createdBy: dailyReport?.createdBy || "",
+          transactions: localTxns,
+          createdBy: apiP.createdBy || "",
+          gamerNumber: apiP.gamerNumber,
         });
-      }
-    } else {
-      for (const apiP of playerData) {
-        const pDate = apiP.date ? apiP.date.split("T")[0] : "";
-        const localTxns = sessionTxnsRef.current.get(apiP.id) || [];
-
-        // console.log("Building player:", playerData, apiP);
-
-        if (pDate === selectedDate || localTxns.length > 0) {
-          builtPlayers.push({
-            id: apiP.id,
-            name: apiP.name || "Unknown",
-            date: selectedDate,
-            transactions: localTxns,
-            createdBy: apiP.createdBy || "",
-            gamerNumber: apiP.gamerNumber,
-          });
-        }
       }
     }
 
-    return { cashierData, playerData, builtPlayers };
+    return { playerData, builtPlayers };
   }, [selectedDate]);
 
   // For child components to trigger a refresh
   const refreshData = useCallback(async () => {
     try {
       setError("");
-      const { cashierData, playerData, builtPlayers } = await fetchData();
-      setCashiers(cashierData);
+      const { playerData, builtPlayers } = await fetchData();
       setApiPlayers(playerData);
       setPlayers(builtPlayers);
     } catch (err) {
@@ -144,17 +92,16 @@ export function MainApp({
     let active = true;
 
     fetchData()
-      .then(({ cashierData, playerData, builtPlayers }) => {
+      .then(({ playerData, builtPlayers }) => {
         if (!active) return;
-        setCashiers(cashierData);
         setApiPlayers(playerData);
         setPlayers(builtPlayers);
 
-        console.log("Initial data loaded:", {
-          cashiers: cashierData,
-          apiPlayers: playerData,
-          players: builtPlayers,
-        });
+        // console.log("Initial data loaded:", {
+        //   cashiers: cashierData,
+        //   apiPlayers: playerData,
+        //   players: builtPlayers,
+        // });
       })
       .catch((err) => {
         if (!active) return;
@@ -201,7 +148,7 @@ export function MainApp({
                 : ("incoming" as const),
             category: t.category || "Other",
             amount: Number(t.amount) || 0,
-            timestamp: p.date || "",
+            date: p.date || "",
             cashierId: p.createdBy || "",
           })),
           createdBy: p.createdBy || "",
@@ -259,63 +206,17 @@ export function MainApp({
       )}
 
       {/* Sidebar */}
-      <aside
-        className={`fixed lg:sticky lg:top-0 z-50 top-0 left-0 h-screen lg:h-screen w-52 bg-[#0a0e18] border-r border-border flex flex-col shrink-0 transition-transform duration-200 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-        }`}
-      >
-        <div className="px-4 py-4 border-b border-border">
-          <div className="flex items-center gap-2">
-            <Shield size={14} className="text-accent shrink-0" />
-            <span className="text-sm font-semibold tracking-tight text-foreground">
-              Casino del Mar
-            </span>
-          </div>
-          <p className="text-xs text-muted-foreground mt-0.5 font-mono">
-            Player Tracking
-          </p>
-        </div>
-
-        <nav className="flex-1 p-2.5 space-y-0.5 overflow-auto">
-          {navItems?.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => handleNav(item)}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-sm text-sm transition-colors cursor-pointer ${
-                item.label.toLowerCase() === "dashboard" && pathname === "/"
-                  ? "bg-accent/15 text-accent font-medium"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-              }`}
-            >
-              <item.icon size={14} />
-              <span>{item.label}</span>
-
-              {item.id === "monitoring" && complianceCount > 0 && (
-                <span className="ml-auto text-xs font-mono bg-emerald-500/20 text-emerald-400 px-1.5 rounded-sm">
-                  {complianceCount}
-                </span>
-              )}
-            </button>
-          ))}
-        </nav>
-
-        <div className="p-2.5 border-t border-border">
-          <div className="px-2.5 py-2 mb-1">
-            <p className="text-xs font-semibold text-foreground">{user.name}</p>
-            <p className="text-xs text-muted-foreground capitalize font-mono">
-              {user.role}
-            </p>
-          </div>
-
-          <button
-            onClick={onLogout}
-            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-sm text-sm text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-          >
-            <LogOut size={14} />
-            Sign Out
-          </button>
-        </div>
-      </aside>
+      <Sidebar
+        sidebarOpen={sidebarOpen}
+        handleNav={handleNav}
+        activeView={
+          pathname === "/" ? "dashboard" : (pathname.slice(1) as View)
+        }
+        navItems={navItems}
+        complianceCount={complianceCount}
+        user={user}
+        logout={onLogout}
+      />
 
       {/* Main */}
       <main className="flex-1 h-screen flex flex-col min-w-0 overflow-hidden">
@@ -398,7 +299,6 @@ export function MainApp({
                       : ("incoming" as const),
                   category: t.category || "Other",
                   amount: Number(t.amount) || 0,
-                  timestamp: t.timestamp || "",
                   cashierId: t.createdBy || "",
                   playerName: t.playerName || "Unknown",
                   cashierName: t.cashierName || "Unknown",

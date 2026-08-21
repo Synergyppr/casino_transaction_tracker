@@ -14,7 +14,7 @@ export function exportTransactionsToCsv(
     "Date",
     "Time",
     "Player",
-    // "Gamer Number",
+    // "Player Number",
     "Direction",
     "Category",
     "Amount",

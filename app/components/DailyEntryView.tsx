@@ -93,7 +93,8 @@ function normalizeApiPlayerToPlayer(apiPlayer: ApiPlayer): Player {
     id: apiPlayer.id,
     gamerNumber: apiPlayer.gamerNumber,
     name: apiPlayer.name || "Unknown",
-    date: getDateOnly(apiPlayer.date) || TODAY,
+    date: getDateOnly(apiPlayer.date) || "",
+    // date: apiPlayer?.date || "",
     transactions:
       apiPlayer?.transactions?.map((t) => ({
         id: t.id,
@@ -103,7 +104,7 @@ function normalizeApiPlayerToPlayer(apiPlayer: ApiPlayer): Player {
             : ("incoming" as const),
         category: t.category || "Other",
         amount: Number(t.amount) || 0,
-        timestamp: apiPlayer.date || "",
+        date: t.date || "",
         cashierId: t.createdByCashierId || "",
         cashierName: t.cashierName,
       })) || [],
@@ -317,7 +318,7 @@ export function DailyEntryView({
     }
 
     if (!gamerNumber) {
-      setEditPlayerError("Gamer number is required.");
+      setEditPlayerError("Player number is required.");
       return;
     }
 
@@ -397,7 +398,7 @@ export function DailyEntryView({
         : (response as ApiPlayer);
 
       if (!apiPlayer?.id) {
-        setPlayerLookupMessage("No player found for this gamer number.");
+        setPlayerLookupMessage("No player found for this Player ID.");
         return;
       }
 
@@ -426,22 +427,82 @@ export function DailyEntryView({
   }
 
   function handleAddPlayer() {
-    const fullName =
-      `${playerDraft.firstName.trim()} ${playerDraft.lastName.trim()}`.trim();
+    if (saving) return;
 
-    if (!fullName) return;
+    const firstName = playerDraft.firstName.trim();
+    const lastName = playerDraft.lastName.trim();
+    const gamerNumber = playerDraft.gamerNumber.trim();
 
-    const matches = todayPlayers.filter(
-      (p) =>
-        p.name.toLowerCase().includes(fullName.slice(0, 5).toLowerCase()) ||
-        fullName.toLowerCase().includes(p.name.slice(0, 5).toLowerCase())
+    const fullName = `${firstName} ${lastName}`.trim();
+
+    if (!fullName) {
+      setPlayerError("First and last name are required.");
+      return;
+    }
+
+    const normalizedFullName = fullName.toLowerCase();
+    const normalizedGamerNumber = gamerNumber.toLowerCase();
+
+    // ─────────────────────────────────────────────────────────────
+    // 1. Player ID / Gamer Number takes priority
+    // ─────────────────────────────────────────────────────────────
+    const gamerNumberMatch = normalizedGamerNumber
+      ? todayPlayers.find(
+          (player) =>
+            String(player.gamerNumber || "")
+              .trim()
+              .toLowerCase() === normalizedGamerNumber
+        )
+      : undefined;
+
+    if (gamerNumberMatch) {
+      resetPlayerDraft();
+      openTxn(gamerNumberMatch);
+      return;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 2. Exact name match
+    // ─────────────────────────────────────────────────────────────
+    const exactNameMatch = todayPlayers.find(
+      (player) =>
+        String(player.name || "")
+          .trim()
+          .toLowerCase() === normalizedFullName
     );
 
-    if (matches.length > 0) {
-      setDupModal({ matches });
-    } else {
-      createPlayer();
+    if (exactNameMatch) {
+      resetPlayerDraft();
+      openTxn(exactNameMatch);
+      return;
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // 3. Existing fuzzy-name duplicate detection
+    // ─────────────────────────────────────────────────────────────
+    const fuzzyNameMatch = todayPlayers.find((player) => {
+      const existingName = String(player.name || "")
+        .trim()
+        .toLowerCase();
+
+      if (!existingName) return false;
+
+      return (
+        existingName.includes(normalizedFullName.slice(0, 5)) ||
+        normalizedFullName.includes(existingName.slice(0, 5))
+      );
+    });
+
+    if (fuzzyNameMatch) {
+      resetPlayerDraft();
+      openTxn(fuzzyNameMatch);
+      return;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // No existing player found → create a new one
+    // ─────────────────────────────────────────────────────────────
+    createPlayer();
   }
 
   async function createPlayer() {
@@ -466,7 +527,7 @@ export function DailyEntryView({
       const p: Player = {
         id: apiPlayer.id,
         name: apiPlayer.name || `${firstName} ${lastName}`.trim(),
-        date: TODAY,
+        date: apiPlayer?.date,
         transactions: [],
         createdBy: user.name,
         gamerNumber: apiPlayer.gamerNumber,
@@ -500,8 +561,6 @@ export function DailyEntryView({
   }
 
   function openTxn(p: Player, txn?: Transaction) {
-    console.log("openTxn called with player:", p, "and transaction:", txn);
-
     const direction = txn?.direction || "incoming";
     const category =
       txn?.category ||
@@ -526,7 +585,7 @@ export function DailyEntryView({
       notes:
         (txn as (Transaction & { notes?: string | null }) | undefined)?.notes ||
         "",
-      date: txn?.timestamp ? getDateOnly(txn.timestamp) : TODAY,
+      date: txn?.date ? txn.date : TODAY,
       originalCategory: txn?.category || "",
       originalAmount: txn?.amount != null ? String(txn.amount) : "",
       originalNotes:
@@ -662,8 +721,13 @@ export function DailyEntryView({
           )
         );
       } else {
+        const propertyId = JSON.parse(
+          sessionStorage.getItem("casino_selected_property") || "null"
+        )?.id;
+
         const apiTxn = await createTransactionApi({
           playerId: txnModal.playerId,
+          propertyId: propertyId,
           createdByCashierId: user.id,
           direction: txnModal.direction,
           category: txnModal.category,

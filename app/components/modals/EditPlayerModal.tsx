@@ -119,7 +119,7 @@ export default function EditPlayerModal({
 
           <label className="space-y-1.5">
             <span className="text-xs font-medium text-muted-foreground">
-              Gamer number
+            Player number
             </span>
             <input
               value={playerDraft.gamerNumber}
@@ -127,7 +127,7 @@ export default function EditPlayerModal({
                 updateField("gamerNumber", event.target.value)
               }
               disabled={saving}
-              placeholder="Gamer number"
+              placeholder="Player number"
               className="h-10 w-full rounded-sm border border-border bg-secondary/40 px-3 font-mono text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
             />
           </label>

@@ -123,7 +123,7 @@ export function DashboardView({
                 : ("incoming" as const),
             category: t.category || "Other",
             amount: Number(t.amount) || 0,
-            timestamp: t.timestamp || "",
+            date: t.date || "",
             cashierId: getCashierName(
               t.cashierId || p.createdBy || p.cashierId
             ),

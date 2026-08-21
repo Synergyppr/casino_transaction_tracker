@@ -17,7 +17,7 @@ import {
   FilterX,
 } from "lucide-react";
 
-import type { Player, ApiPlayer, ApiDailyReport, Cashier } from "../lib/types";
+import type { Player, ApiPlayer } from "../lib/types";
 import {
   COMPLIANCE_THRESHOLD,
   TODAY,
@@ -28,6 +28,7 @@ import { getDailyReport, getTransactionLogs } from "../lib/api";
 
 import { Modal } from "./Modal";
 import { exportTransactionsToCsv } from "../helpers/exportCsv";
+import { ReportData } from "../reports/page";
 // import { START_OF_TODAY, END_OF_TODAY } from "../lib/constants";
 
 export type TransactionLog = {
@@ -46,7 +47,6 @@ export type TransactionRow = {
   direction: "incoming" | "outgoing";
   category: string;
   amount: number;
-  timestamp: string;
   cashierId: string;
   cashierName?: string;
   player: Player;
@@ -359,7 +359,7 @@ function normalizeApiPlayerToPlayer(apiPlayer: ApiPlayer): Player {
     transactions:
       apiPlayer?.transactions?.map((t) => {
         const tx = t as typeof t & {
-          timestamp?: string;
+          date?: string;
           createdAtUtc?: string;
           createdByCashierId?: string;
           cashierId?: string;
@@ -374,7 +374,7 @@ function normalizeApiPlayerToPlayer(apiPlayer: ApiPlayer): Player {
               : ("incoming" as const),
           category: tx.category || "Other",
           amount: Number(tx.amount) || 0,
-          timestamp: tx.timestamp || tx.createdAtUtc || apiPlayer.date || "",
+          date: tx.date || tx.createdAtUtc || apiPlayer.date || "",
           cashierId: tx.cashierId || tx.createdByCashierId || "",
           cashierName: tx.cashierName,
           // gamerNumber: apiPlayer.gamerNumber,
@@ -385,22 +385,24 @@ function normalizeApiPlayerToPlayer(apiPlayer: ApiPlayer): Player {
 
 export function ReportsView({
   selectedDate,
-  apiPlayers,
   startDate,
   endDate,
   setStartDate,
   setEndDate,
-  cashiers = [],
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  report,
+  setReport,
+  cashiers,
 }: {
   selectedDate: string;
-  apiPlayers: ApiPlayer[];
   startDate: string;
   endDate: string;
   setStartDate: (d: string) => void;
   setEndDate: (d: string) => void;
-  cashiers?: Cashier[];
+  report?: ReportData;
+  setReport: React.Dispatch<React.SetStateAction<ReportData | undefined>>;
+  cashiers?: { id: string; name: string }[];  
 }) {
-  const [, setReportData] = useState<ApiDailyReport | null>(null);
   const [transactionLogs, setTransactionLogs] = useState<TransactionLog[]>([]);
   const [selectedTransaction, setSelectedTransaction] =
     useState<TransactionRow | null>(null);
@@ -421,11 +423,20 @@ export function ReportsView({
     setLoadingReport(true);
 
     try {
-      const report = await getDailyReport(
-        `${startDate}T00:00:00`,
-        `${endDate}T23:59:59.999`
-      );
-      setReportData(report);
+      const propertyId = JSON.parse(
+        sessionStorage.getItem("casino_selected_property") || "null"
+      )?.id;
+
+      const payload = {
+        propertyId: propertyId,
+        startDateTime: `${startDate}T00:00:00`,
+        endDateTime: `${endDate}T23:59:59.999`,
+      };
+
+      const report = await getDailyReport(payload);
+
+      // console.log("Fetched report:", report);
+      setReport(report as unknown as ReportData);
 
       const playerDetail = Array.isArray(report?.playerDetail)
         ? report.playerDetail
@@ -441,25 +452,19 @@ export function ReportsView({
           const firstTransaction = detail.transactions?.find((transaction) => {
             const candidate = transaction as typeof transaction & {
               date?: string;
-              timestamp?: string;
               createdAtUtc?: string;
             };
 
-            return Boolean(
-              candidate.date || candidate.timestamp || candidate.createdAtUtc
-            );
+            return Boolean(candidate.date || candidate.createdAtUtc);
           }) as
             | ((typeof detail.transactions)[number] & {
                 date?: string;
-                timestamp?: string;
                 createdAtUtc?: string;
               })
             | undefined;
 
           const firstTransactionDate = getDateOnly(
-            firstTransaction?.date ||
-              firstTransaction?.timestamp ||
-              firstTransaction?.createdAtUtc
+            firstTransaction?.date || firstTransaction?.createdAtUtc
           );
 
           return {
@@ -471,7 +476,6 @@ export function ReportsView({
               detail.transactions?.map((t) => {
                 const tx = t as typeof t & {
                   date?: string;
-                  timestamp?: string;
                   createdAtUtc?: string;
                   createdByCashierId?: string;
                   cashierName?: string;
@@ -483,10 +487,9 @@ export function ReportsView({
                     tx.direction === "outgoing"
                       ? ("outgoing" as const)
                       : ("incoming" as const),
-                  date: getDateOnly(tx.date || tx.timestamp || tx.createdAtUtc),
+                  date: getDateOnly(tx.date || tx.createdAtUtc),
                   category: tx.category || "Other",
                   amount: Number(tx.amount) || 0,
-                  timestamp: tx.date || tx.timestamp || tx.createdAtUtc || "",
                   cashierId: tx.createdByCashierId || "",
                   cashierName: tx.cashierName,
                 };
@@ -505,6 +508,7 @@ export function ReportsView({
     } finally {
       setLoadingReport(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startDate, endDate]);
 
   useEffect(() => {
@@ -541,11 +545,11 @@ export function ReportsView({
         if (cancelled) return;
 
         setTransactionLogs(normalizedLogs);
-        console.log(
-          "Fetched logs for transaction:",
-          selectedTransaction.id,
-          normalizedLogs
-        );
+        // console.log(
+        //   "Fetched logs for transaction:",
+        //   selectedTransaction.id,
+        //   normalizedLogs
+        // );
       } catch (err) {
         if (cancelled) return;
 
@@ -567,8 +571,8 @@ export function ReportsView({
 
   const normalizedApiPlayers = useMemo(
     () =>
-      apiPlayers
-        .filter((p) => {
+      reportPlayers
+        ?.filter((p) => {
           const [datePart] = (p.date || "").split(" ");
           const [month, day, year] = datePart.split("/");
 
@@ -579,8 +583,8 @@ export function ReportsView({
 
           return formattedDate === selectedDate;
         })
-        .map(normalizeApiPlayerToPlayer),
-    [apiPlayers, selectedDate]
+        .map(normalizeApiPlayerToPlayer as never) as Player[],
+    [reportPlayers, selectedDate]
   );
 
   const datePlayers =
@@ -593,15 +597,11 @@ export function ReportsView({
           (p.transactions || []).map((t) => {
             const transaction = t as typeof t & {
               date?: string;
-              timestamp?: string;
               createdAtUtc?: string;
             };
 
             const transactionDateTime =
-              transaction.timestamp ||
-              transaction.createdAtUtc ||
-              transaction.date ||
-              p.date;
+              transaction.createdAtUtc || transaction.date || p.date;
 
             return {
               ...t,
@@ -1339,7 +1339,7 @@ export function ReportsView({
                 );
                 const values = changedValues.newValues;
                 const changedBy =
-                  cashiers.find((c) => c.id === log.changedByCashierId)?.name ??
+                  cashiers?.find((c) => c.id === log.changedByCashierId)?.name ??
                   log.changedByCashierId ??
                   "Unknown";
 

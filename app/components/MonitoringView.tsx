@@ -54,8 +54,8 @@ export function MonitoringView({
               : ("incoming" as const),
           category: t.category || "Other",
           amount: Number(t.amount) || 0,
-          timestamp: t.timestamp || "",
           cashierId: t.cashierId || "",
+          date: t.date || "",
         })),
       })),
     [players]
@@ -101,7 +101,7 @@ export function MonitoringView({
 
   async function submitPlayer() {
     if (!draft.gamerNumber.trim()) {
-      setFormError("Gamer number is required.");
+      setFormError("Player number is required.");
       return;
     }
 
@@ -326,7 +326,7 @@ export function MonitoringView({
           <div className="space-y-4 mb-5">
             <div>
               <label className="text-xs text-muted-foreground mb-1.5 block font-mono uppercase tracking-wider">
-                Gamer Number
+                Player Number
               </label>
               <input
                 value={draft.gamerNumber}

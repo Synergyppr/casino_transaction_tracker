@@ -1,5 +1,4 @@
 "use client";
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -13,11 +12,12 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
+
 import type { Cashier } from "../lib/types";
 import RegisteredPlayersView from "../components/RegisteredPlayersView";
 
 const SESSION_KEY = "casino_session";
-const TIMEOUT_MS = 60 * 60 * 1000;
+const TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
 
 type NavigationView =
   | "dashboard"
@@ -33,16 +33,28 @@ interface NavigationItem {
   href: string;
 }
 
+/* ---------------------------------------------------------
+   SESSION HELPERS
+--------------------------------------------------------- */
+
 function saveSession(cashier: Cashier) {
+  if (typeof window === "undefined") return;
+
   sessionStorage.setItem(
     SESSION_KEY,
-    JSON.stringify({ cashier, lastActivity: Date.now() })
+    JSON.stringify({
+      cashier,
+      lastActivity: Date.now(),
+    })
   );
 }
 
 function loadSession(): Cashier | null {
+  if (typeof window === "undefined") return null;
+
   try {
     const rawSession = sessionStorage.getItem(SESSION_KEY);
+
     if (!rawSession) return null;
 
     const parsed = JSON.parse(rawSession) as {
@@ -60,15 +72,24 @@ function loadSession(): Cashier | null {
     }
 
     return parsed.cashier;
-  } catch {
+  } catch (error) {
+    console.error("Failed to load session:", error);
+
     sessionStorage.removeItem(SESSION_KEY);
+
     return null;
   }
 }
 
 function clearSession() {
+  if (typeof window === "undefined") return;
+
   sessionStorage.removeItem(SESSION_KEY);
 }
+
+/* ---------------------------------------------------------
+   PAGE
+--------------------------------------------------------- */
 
 export default function RegisteredPlayersPage() {
   const pathname = usePathname();
@@ -77,53 +98,134 @@ export default function RegisteredPlayersPage() {
   const [mounted, setMounted] = useState(false);
   const [user, setUser] = useState<Cashier | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /* ---------------------------------------------------------
+     INITIAL SESSION LOAD
+
+     The state updates happen inside queueMicrotask instead of
+     synchronously inside the effect body. This resolves the
+     react-hooks/set-state-in-effect warning.
+  --------------------------------------------------------- */
+
   useEffect(() => {
-    setUser(loadSession());
-    setMounted(true);
+    let cancelled = false;
+
+    queueMicrotask(() => {
+      if (cancelled) return;
+
+      const savedUser = loadSession();
+
+      setUser(savedUser);
+      setMounted(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
+  /* ---------------------------------------------------------
+     LOGOUT
+  --------------------------------------------------------- */
+
   const logout = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+
     clearSession();
+
     setUser(null);
+
     router.replace("/login");
   }, [router]);
 
+  /* ---------------------------------------------------------
+     REDIRECT WHEN SESSION DOES NOT EXIST
+  --------------------------------------------------------- */
+
   useEffect(() => {
     if (!mounted) return;
-    if (!user) router.replace("/login");
+    if (user) return;
+
+    router.replace("/login");
   }, [mounted, router, user]);
+
+  /* ---------------------------------------------------------
+     SESSION INACTIVITY TIMER
+  --------------------------------------------------------- */
 
   useEffect(() => {
     if (!mounted || !user) return;
 
-    function resetTimer() {
-      saveSession(user as Cashier);
+    const resetTimer = () => {
+      /*
+       * Persist the latest activity time.
+       */
+      saveSession(user);
 
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(logout, TIMEOUT_MS);
-    }
+      /*
+       * Clear the previous logout timeout.
+       */
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
 
-    const activityEvents = ["mousedown", "keydown", "touchstart", "scroll"];
+      /*
+       * Start a fresh inactivity timeout.
+       */
+      timerRef.current = setTimeout(() => {
+        logout();
+      }, TIMEOUT_MS);
+    };
 
-    activityEvents.forEach((eventName) =>
-      window.addEventListener(eventName, resetTimer)
-    );
+    const activityEvents: (keyof WindowEventMap)[] = [
+      "mousedown",
+      "keydown",
+      "touchstart",
+      "scroll",
+    ];
 
+    activityEvents.forEach((eventName) => {
+      window.addEventListener(eventName, resetTimer, {
+        passive: true,
+      });
+    });
+
+    /*
+     * Initial timeout setup.
+     *
+     * This doesn't update React state, so it is safe to call
+     * synchronously inside the effect.
+     */
     resetTimer();
 
     return () => {
-      activityEvents.forEach((eventName) =>
-        window.removeEventListener(eventName, resetTimer)
-      );
+      activityEvents.forEach((eventName) => {
+        window.removeEventListener(eventName, resetTimer);
+      });
 
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
     };
   }, [logout, mounted, user]);
 
+  /* ---------------------------------------------------------
+     PERMISSIONS
+  --------------------------------------------------------- */
+
   const canAdmin = user?.role === "supervisor" || user?.role === "manager";
+
   const canReports = user?.role === "supervisor" || user?.role === "manager";
+
+  /* ---------------------------------------------------------
+     NAVIGATION
+  --------------------------------------------------------- */
 
   const navigationItems = useMemo<NavigationItem[]>(
     () => [
@@ -145,6 +247,7 @@ export default function RegisteredPlayersPage() {
         label: "Registered Players",
         href: "/registered-players",
       },
+
       ...(canReports
         ? [
             {
@@ -155,6 +258,7 @@ export default function RegisteredPlayersPage() {
             },
           ]
         : []),
+
       ...(canAdmin
         ? [
             {
@@ -169,10 +273,15 @@ export default function RegisteredPlayersPage() {
     [canAdmin, canReports]
   );
 
-  function navigateTo(href: string) {
+  const navigateTo = (href: string) => {
     setSidebarOpen(false);
+
     router.push(href);
-  }
+  };
+
+  /* ---------------------------------------------------------
+     INITIAL LOADING / REDIRECT
+  --------------------------------------------------------- */
 
   if (!mounted || !user) {
     return (
@@ -184,8 +293,14 @@ export default function RegisteredPlayersPage() {
     );
   }
 
+  /* ---------------------------------------------------------
+     UI
+  --------------------------------------------------------- */
+
   return (
     <div className="flex h-screen min-h-screen overflow-hidden bg-background">
+      {/* Mobile Overlay */}
+
       {sidebarOpen && (
         <button
           type="button"
@@ -195,19 +310,25 @@ export default function RegisteredPlayersPage() {
         />
       )}
 
+      {/* Sidebar */}
+
       <aside
         className={`fixed left-0 top-0 z-50 flex h-screen w-52 shrink-0 flex-col border-r border-border bg-[#0a0e18] transition-transform duration-200 lg:sticky lg:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
+        {/* Branding */}
+
         <div className="flex items-start justify-between border-b border-border px-4 py-4">
           <div>
             <div className="flex items-center gap-2">
               <Shield size={14} className="shrink-0 text-accent" />
+
               <span className="text-sm font-semibold tracking-tight text-foreground">
                 Casino del Mar
               </span>
             </div>
+
             <p className="mt-0.5 font-mono text-xs text-muted-foreground">
               Player Tracking
             </p>
@@ -222,6 +343,8 @@ export default function RegisteredPlayersPage() {
             <X size={16} />
           </button>
         </div>
+
+        {/* Navigation */}
 
         <nav className="flex-1 space-y-0.5 overflow-auto p-2.5">
           {navigationItems.map((item) => {
@@ -242,15 +365,19 @@ export default function RegisteredPlayersPage() {
                 }`}
               >
                 <item.icon size={14} />
+
                 <span>{item.label}</span>
               </button>
             );
           })}
         </nav>
 
+        {/* User */}
+
         <div className="border-t border-border p-2.5">
           <div className="mb-1 px-2.5 py-2">
             <p className="text-xs font-semibold text-foreground">{user.name}</p>
+
             <p className="font-mono text-xs capitalize text-muted-foreground">
               {user.role}
             </p>
@@ -267,7 +394,11 @@ export default function RegisteredPlayersPage() {
         </div>
       </aside>
 
+      {/* Main */}
+
       <main className="flex h-screen min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Mobile Header */}
+
         <header className="flex h-14 shrink-0 items-center border-b border-border bg-card px-4 lg:hidden">
           <button
             type="button"
@@ -282,11 +413,12 @@ export default function RegisteredPlayersPage() {
             <p className="text-sm font-semibold text-foreground">
               Registered Players
             </p>
-            <p className="text-[11px] text-muted-foreground">
-              Casino del Mar
-            </p>
+
+            <p className="text-[11px] text-muted-foreground">Casino del Mar</p>
           </div>
         </header>
+
+        {/* Registered Players */}
 
         <div className="min-h-0 flex-1">
           <RegisteredPlayersView />

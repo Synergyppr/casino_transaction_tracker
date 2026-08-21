@@ -42,10 +42,10 @@ const ManageTransactionModal = ({
 }) => {
   return (
     <Modal
-      onClose={() => {
-        setTxnModal(null);
-        setTxnError("");
-      }}
+    // onClose={() => {
+    //   setTxnModal(null);
+    //   setTxnError("");
+    // }}
     >
       <div className="flex items-center justify-between mb-5">
         <div>
@@ -57,7 +57,7 @@ const ManageTransactionModal = ({
           <p className="text-xs text-muted-foreground mt-0.5">
             {txnModal?.playerName}
           </p>
-          {/* <p>{txnModal?.timestamp || txnModal?.date || "Date"}</p> */}
+          {/* <p>{txnModal?.updatedAt || txnModal?.createdAt || "Date"}</p> */}
           {txnModal?.updatedAt && txnModal?.updatedByCashierId && (
             <p className="text-xs text-muted-foreground mt-0.5">
               Last updated on {txnModal.updatedAt} by{" "}
