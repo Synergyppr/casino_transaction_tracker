@@ -248,7 +248,7 @@ export function DashboardView({
   return (
     <div className="p-5 space-y-5">
       {/* Stat cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         {[
           {
             label: "Players",
@@ -261,10 +261,16 @@ export function DashboardView({
             sub: "total logged",
           },
           {
-            label: "Cash Flow",
+            label: "Cash Flow In",
             value: fmt(totalIn),
             mono: true,
-            sub: `IN ${fmt(totalIn)} · OUT ${fmt(totalOut)}`,
+            sub: `IN ${fmt(totalIn)}`,
+          },
+          {
+            label: "Cash Flow Out",
+            value: fmt(totalOut),
+            mono: true,
+            sub: `OUT ${fmt(totalOut)}`,
           },
           {
             label: "Alerts",

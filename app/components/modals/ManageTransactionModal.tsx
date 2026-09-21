@@ -1,9 +1,9 @@
+import React from "react";
 import { ArrowDownCircle, ArrowUpCircle, Loader2, X } from "lucide-react";
-import { Modal } from "../Modal";
 import { Direction } from "@/app/lib/types";
 import { CASH_IN_TYPES, CASH_OUT_TYPES } from "@/app/lib/constants";
-import React from "react";
 import { TxnDraft } from "../DailyEntryView";
+import { Modal } from "../Modal";
 
 const ManageTransactionModal = ({
   txnModal,

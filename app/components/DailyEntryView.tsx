@@ -52,7 +52,6 @@ export interface TxnDraft {
   originalCategory?: string;
   originalAmount?: string;
   originalNotes?: string;
-  // Adding
   createdAt?: string;
   createdByCashierId?: string;
   updatedAt?: string;
@@ -725,14 +724,20 @@ export function DailyEntryView({
           sessionStorage.getItem("casino_selected_property") || "null"
         )?.id;
 
-        const apiTxn = await createTransactionApi({
+        const payload = {
           playerId: txnModal.playerId,
           propertyId: propertyId,
           createdByCashierId: user.id,
           direction: txnModal.direction,
-          category: txnModal.category,
+          category: effectiveTxnCategory,
           amount: amt,
-        });
+        };
+
+        // console.log("Creating API Transaction with payload:", payload);
+
+        const apiTxn = await createTransactionApi(payload);
+
+        // console.log("API Transaction Created:", apiTxn);
 
         const txn = mapApiTransaction(apiTxn);
 

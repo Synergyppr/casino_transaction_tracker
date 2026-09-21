@@ -5,7 +5,7 @@ import type { Cashier } from "./lib/types";
 import { MainApp } from "./components/MainApp";
 
 const SESSION_KEY = "casino_session";
-const TIMEOUT_MS = 60 * 60 * 1000;
+const TIMEOUT_MS = 60 * 60 * 1000; // 
 
 function saveSession(cashier: Cashier) {
   sessionStorage.setItem(
@@ -67,6 +67,7 @@ export default function Home() {
       saveSession(user!);
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(logout, TIMEOUT_MS);
+      // console.log("Session timer reset", TIMEOUT_MS / 1000, "seconds");
     }
 
     const events = ["mousedown", "keydown", "touchstart", "scroll"];

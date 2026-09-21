@@ -20,29 +20,62 @@ const SESSION_KEY = "casino_session";
 const TIMEOUT_MS = 60 * 60 * 1000;
 
 function saveSession(cashier: Cashier) {
-  sessionStorage.setItem(
-    SESSION_KEY,
-    JSON.stringify({ cashier, lastActivity: Date.now() })
-  );
+  try {
+    sessionStorage.setItem(
+      SESSION_KEY,
+      JSON.stringify({
+        cashier,
+        lastActivity: Date.now(),
+      })
+    );
+  } catch (error) {
+    console.error("Failed to save session:", error);
+  }
 }
 
 function loadSession(): Cashier | null {
   try {
     const raw = sessionStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-    const { cashier, lastActivity } = JSON.parse(raw);
-    if (Date.now() - lastActivity > TIMEOUT_MS) {
+
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw);
+
+    const cashier = parsed?.cashier;
+    const lastActivity = parsed?.lastActivity;
+
+    if (!cashier || !lastActivity) {
       sessionStorage.removeItem(SESSION_KEY);
       return null;
     }
-    return cashier;
-  } catch {
+
+    if (Date.now() - Number(lastActivity) > TIMEOUT_MS) {
+      sessionStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+
+    return cashier as Cashier;
+  } catch (error) {
+    console.error("Failed to load session:", error);
+
+    try {
+      sessionStorage.removeItem(SESSION_KEY);
+    } catch {
+      // Ignore storage cleanup errors
+    }
+
     return null;
   }
 }
 
 function clearSession() {
-  sessionStorage.removeItem(SESSION_KEY);
+  try {
+    sessionStorage.removeItem(SESSION_KEY);
+  } catch (error) {
+    console.error("Failed to clear session:", error);
+  }
 }
 
 export default function Home() {
@@ -53,12 +86,16 @@ export default function Home() {
   const router = useRouter();
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const [mounted, setMounted] = useState(false);
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [user, setUser] = useState<Cashier | null>(null);
+
   const [, setCashiers] = useState<Cashier[]>([]);
   const [apiPlayers, setApiPlayers] = useState<ApiPlayer[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [, setError] = useState<string>("");
+
   const activeView = useMemo<View>(() => {
     const pathSegment = pathname.split("/")[1]?.toLowerCase();
 
@@ -90,37 +127,71 @@ export default function Home() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    async function initializeSession() {
-      const session = loadSession();
-      setUser(session);
+    /**
+     * IMPORTANT:
+     *
+     * Do not redirect or show "Please log in..." until we've actually
+     * checked sessionStorage.
+     *
+     * `user` starts as null on the first render, but that does NOT mean
+     * the user is logged out yet.
+     */
+    const session = loadSession();
+
+    setTimeout(() => {
+      if (session) {
+        setUser(session);
+      } else {
+        setUser(null);
+      }
+
+      setSessionChecked(true);
       setMounted(true);
-    }
-    initializeSession();
+    }, 0);
   }, []);
 
   const logout = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+
     clearSession();
     setUser(null);
-  }, []);
+
+    router.replace("/login");
+  }, [router]);
 
   useEffect(() => {
-    if (!mounted || !user) return;
+    if (!mounted || !sessionChecked || !user) return;
 
     function resetTimer() {
-      saveSession(user!);
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(logout, TIMEOUT_MS);
+      saveSession(user as unknown as Cashier);
+
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+
+      timerRef.current = setTimeout(() => {
+        logout();
+      }, TIMEOUT_MS);
     }
 
     const events = ["mousedown", "keydown", "touchstart", "scroll"];
+
     events.forEach((e) => window.addEventListener(e, resetTimer));
+
     resetTimer();
 
     return () => {
       events.forEach((e) => window.removeEventListener(e, resetTimer));
-      if (timerRef.current) clearTimeout(timerRef.current);
+
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
     };
-  }, [mounted, user, logout]);
+  }, [mounted, sessionChecked, user, logout]);
 
   const fetchData = useCallback(async () => {
     const [cashierData, playerData] = await Promise.all([
@@ -159,7 +230,9 @@ export default function Home() {
   const refreshData = useCallback(async () => {
     try {
       setError("");
+
       const { cashierData, playerData, builtPlayers } = await fetchData();
+
       setCashiers(cashierData);
       setApiPlayers(playerData);
       setPlayers(builtPlayers);
@@ -170,22 +243,31 @@ export default function Home() {
   }, [fetchData]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!mounted || !sessionChecked || !user) return;
 
-    if (user) {
-      (async () => {
-        await refreshData();
-      })();
-    }
+    (async () => {
+      await refreshData();
+    })();
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [user, mounted, sessionChecked]);
 
   useEffect(() => {
-    if (mounted) {
-      if (!user) router.push("/login");
+    /**
+     * Only make an authentication decision AFTER sessionStorage
+     * has been checked.
+     *
+     * Previously `user === null` during the initial render could
+     * incorrectly behave like a real logged-out state.
+     */
+    if (!mounted || !sessionChecked) return;
+
+    if (!user) {
+      router.replace("/login");
     }
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, mounted]);
+  }, [user, mounted, sessionChecked]);
 
   const canAdmin = user?.role === "supervisor" || user?.role === "manager";
   const canReports = user?.role === "manager" || user?.role === "supervisor";
@@ -229,6 +311,7 @@ export default function Home() {
 
   const complianceCount = monitoringPlayers.filter((p) => {
     const { incoming, outgoing } = getPlayerTotals(p);
+
     return getStatus(incoming, outgoing) === "compliance";
   }).length;
 
@@ -246,6 +329,7 @@ export default function Home() {
     };
 
     setSidebarOpen(false);
+
     router.push(routes[item.id] || "/");
   }
 
@@ -253,30 +337,48 @@ export default function Home() {
   const addSessionTransaction = useCallback(
     (playerId: string, txn: Transaction) => {
       const existing = sessionTxnsRef.current.get(playerId) || [];
+
       sessionTxnsRef.current.set(playerId, [...existing, txn]);
     },
     []
   );
 
-  // Loader
-  if (!user) {
+  /**
+   * Initial authentication/session loader.
+   *
+   * IMPORTANT:
+   * This must happen BEFORE checking `!user`.
+   *
+   * `user` is intentionally null on the initial React render while
+   * sessionStorage is being restored.
+   */
+  if (!mounted || !sessionChecked) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center px-4">
         <div className="w-72">
           <div className="text-center mb-10">
-            <p className="text-sm text-muted-foreground">Please log in...</p>
+            <p className="text-sm text-muted-foreground">Loading...</p>
           </div>
         </div>
       </div>
     );
   }
 
-  if (!mounted) {
+  /**
+   * Actual logged-out state.
+   *
+   * The redirect effect above will send the user to /login.
+   * We render a loader while Next.js completes the route change instead
+   * of incorrectly telling a valid user to log in again.
+   */
+  if (!user) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center px-4">
         <div className="w-72">
           <div className="text-center mb-10">
-            <p className="text-sm text-muted-foreground">Loading...</p>
+            <p className="text-sm text-muted-foreground">
+              Redirecting to login...
+            </p>
           </div>
         </div>
       </div>

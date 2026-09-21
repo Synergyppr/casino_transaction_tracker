@@ -34,7 +34,7 @@ const AllPlayerTransactionsModal = ({
   };
 
   return (
-    <Modal onClose={() => setListModal(null)}>
+    <Modal>
       <div className="flex items-start justify-between gap-4 mb-5">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold">Transactions</h3>

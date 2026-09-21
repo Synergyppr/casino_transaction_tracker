@@ -47,6 +47,7 @@ export function LoginScreen({
 
     if (property) {
       sessionStorage.setItem(SELECTED_PROPERTY_KEY, JSON.stringify(property));
+      sessionStorage.setItem("casino_selected_property", propertyId);
     } else {
       sessionStorage.removeItem(SELECTED_PROPERTY_KEY);
     }
@@ -168,27 +169,8 @@ export function LoginScreen({
               value={selectedPropertyId}
               onChange={(event) => handlePropertyChange(event.target.value)}
               disabled={propertiesLoading || loading}
-              className="
-                h-11
-                w-full
-                appearance-none
-                rounded-sm
-                border
-                border-border
-                bg-secondary
-                pl-9
-                pr-9
-                text-sm
-                text-foreground
-                outline-none
-                transition-colors
-                hover:border-accent/40
-                focus:border-accent
-                focus:ring-1
-                focus:ring-accent/30
-                disabled:cursor-not-allowed
-                disabled:opacity-60
-              "
+              className="h-11  w-full appearance-none rounded-sm border border-border bg-secondary pl-9 pr-9 text-sm text-foreground outline-none
+              transition-colors hover:border-accent/40 focus:border-accent focus:ring-1 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <option value="">
                 {propertiesLoading

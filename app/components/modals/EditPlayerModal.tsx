@@ -53,7 +53,7 @@ export default function EditPlayerModal({
   }
 
   return (
-    <Modal onClose={onClose}>
+    <Modal>
       <form
         onSubmit={handleSubmit}
         className="w-full max-w-xl overflow-hidden rounded-lg border border-border bg-card shadow-2xl"
@@ -93,9 +93,7 @@ export default function EditPlayerModal({
             <input
               autoFocus
               value={playerDraft.firstName}
-              onChange={(event) =>
-                updateField("firstName", event.target.value)
-              }
+              onChange={(event) => updateField("firstName", event.target.value)}
               disabled={saving}
               placeholder="First name"
               className="h-10 w-full rounded-sm border border-border bg-secondary/40 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
@@ -108,9 +106,7 @@ export default function EditPlayerModal({
             </span>
             <input
               value={playerDraft.lastName}
-              onChange={(event) =>
-                updateField("lastName", event.target.value)
-              }
+              onChange={(event) => updateField("lastName", event.target.value)}
               disabled={saving}
               placeholder="Last name"
               className="h-10 w-full rounded-sm border border-border bg-secondary/40 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
@@ -119,7 +115,7 @@ export default function EditPlayerModal({
 
           <label className="space-y-1.5">
             <span className="text-xs font-medium text-muted-foreground">
-            Player number
+              Player number
             </span>
             <input
               value={playerDraft.gamerNumber}

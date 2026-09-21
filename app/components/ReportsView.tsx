@@ -1,20 +1,13 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import {
   Calendar,
   Download,
   Loader2,
-  Eye,
-  X,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  ArrowRight,
-  Minus,
-  ChevronLeft,
-  ChevronRight,
-  Search,
-  FilterX,
 } from "lucide-react";
 
 import type { Player, ApiPlayer } from "../lib/types";
@@ -26,10 +19,10 @@ import {
 import { getPlayerTotals, getStatus, fmt, fmtDate } from "../lib/utils";
 import { getDailyReport, getTransactionLogs } from "../lib/api";
 
-import { Modal } from "./Modal";
 import { exportTransactionsToCsv } from "../helpers/exportCsv";
-import { ReportData } from "../reports/page";
-// import { START_OF_TODAY, END_OF_TODAY } from "../lib/constants";
+import type { ReportData } from "../reports/page";
+import SelectedTransactionModal from "./modals/SelectedTransactionModal";
+import ReportsViewTable from "./ReportsViewTable";
 
 export type TransactionLog = {
   id: string;
@@ -57,10 +50,15 @@ export type TransactionRow = {
   time: string;
 };
 
-type SortKey = "dateTime" | "player" | "direction" | "category" | "amount";
-type SortDirection = "asc" | "desc";
-type DirectionFilter = "all" | "incoming" | "outgoing";
-type AlertFilter = "all" | "normal" | "warning" | "compliance";
+export type SortKey =
+  | "dateTime"
+  | "player"
+  | "direction"
+  | "category"
+  | "amount";
+export type SortDirection = "asc" | "desc";
+export type DirectionFilter = "all" | "incoming" | "outgoing";
+export type AlertFilter = "all" | "normal" | "warning" | "compliance";
 
 type ParsedLogValues = {
   direction?: "incoming" | "outgoing";
@@ -111,7 +109,10 @@ function areJsonValuesEqual(oldValue: unknown, newValue: unknown) {
   );
 }
 
-function getChangedLogValues(oldValuesJson: unknown, newValuesJson: unknown) {
+export function getChangedLogValues(
+  oldValuesJson: unknown,
+  newValuesJson: unknown
+) {
   const oldValues = safeParseJson(oldValuesJson);
   const newValues = safeParseJson(newValuesJson);
   const keys = Array.from(
@@ -161,7 +162,7 @@ function formatLogFieldName(key: string) {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-function formatLogValue(key: string, value: unknown): string {
+export function formatLogValue(key: string, value: unknown): string {
   if (value === null || value === undefined || value === "") return "Empty";
 
   if (key === "amount") {
@@ -187,7 +188,7 @@ function formatLogValue(key: string, value: unknown): string {
   return String(value);
 }
 
-function getChangedFieldRows(
+export function getChangedFieldRows(
   oldValues: ParsedLogValues,
   newValues: ParsedLogValues
 ) {
@@ -225,7 +226,7 @@ function normalizeTransactionLogsResponse(response: unknown): TransactionLog[] {
   return [];
 }
 
-function formatLogDateTime(value: string) {
+export function formatLogDateTime(value: string) {
   if (!value) return "—";
 
   const date = new Date(value);
@@ -241,7 +242,7 @@ function formatLogDateTime(value: string) {
   });
 }
 
-const formatDateOnly = (date?: string) => {
+export const formatDateOnly = (date?: string) => {
   if (!date) return "";
 
   const [year, month, day] = date.split("-").map(Number);
@@ -400,8 +401,8 @@ export function ReportsView({
   setStartDate: (d: string) => void;
   setEndDate: (d: string) => void;
   report?: ReportData;
-  setReport: React.Dispatch<React.SetStateAction<ReportData | undefined>>;
-  cashiers?: { id: string; name: string }[];  
+  setReport: Dispatch<SetStateAction<ReportData | undefined>>;
+  cashiers?: { id: string; name: string }[];
 }) {
   const [transactionLogs, setTransactionLogs] = useState<TransactionLog[]>([]);
   const [selectedTransaction, setSelectedTransaction] =
@@ -418,6 +419,8 @@ export function ReportsView({
   const [directionFilter, setDirectionFilter] =
     useState<DirectionFilter>("all");
   const [alertFilter, setAlertFilter] = useState<AlertFilter>("all");
+  const [amountMinFilter, setAmountMinFilter] = useState<number | null>(null);
+  const [amountMaxFilter, setAmountMaxFilter] = useState<number | null>(null);
 
   const fetchReport = useCallback(async () => {
     setLoadingReport(true);
@@ -458,9 +461,9 @@ export function ReportsView({
             return Boolean(candidate.date || candidate.createdAtUtc);
           }) as
             | ((typeof detail.transactions)[number] & {
-                date?: string;
-                createdAtUtc?: string;
-              })
+              date?: string;
+              createdAtUtc?: string;
+            })
             | undefined;
 
           const firstTransactionDate = getDateOnly(
@@ -569,10 +572,10 @@ export function ReportsView({
     };
   }, [selectedTransaction]);
 
-  const normalizedApiPlayers = useMemo(
+  const normalizedApiPlayers = useMemo<Player[]>(
     () =>
       reportPlayers
-        ?.filter((p) => {
+        .filter((p) => {
           const [datePart] = (p.date || "").split(" ");
           const [month, day, year] = datePart.split("/");
 
@@ -583,18 +586,18 @@ export function ReportsView({
 
           return formattedDate === selectedDate;
         })
-        .map(normalizeApiPlayerToPlayer as never) as Player[],
+        .map((player) => normalizeApiPlayerToPlayer(player as unknown as ApiPlayer)),
     [reportPlayers, selectedDate]
   );
 
   const datePlayers =
     reportPlayers.length > 0 ? reportPlayers : normalizedApiPlayers;
 
-  const transactionRows = useMemo(
+  const transactionRows = useMemo<TransactionRow[]>(
     () =>
       datePlayers
         .flatMap((p) =>
-          (p.transactions || []).map((t) => {
+          (p.transactions || []).map((t): TransactionRow => {
             const transaction = t as typeof t & {
               date?: string;
               createdAtUtc?: string;
@@ -604,7 +607,11 @@ export function ReportsView({
               transaction.createdAtUtc || transaction.date || p.date;
 
             return {
-              ...t,
+              id: t.id,
+              direction: t.direction,
+              category: t.category || "Other",
+              amount: Number(t.amount) || 0,
+              cashierId: t.cashierId || "",
               player: p,
               playerId: p.id,
               playerName: p.name,
@@ -632,10 +639,49 @@ export function ReportsView({
     () =>
       Array.from(
         new Set(
-          transactionRows.map((transaction) => transaction.category || "Other")
+          transactionRows
+            .filter(
+              (transaction) =>
+                directionFilter === "all" ||
+                transaction.direction === directionFilter
+            )
+            .map((transaction) => transaction.category || "Other")
         )
       ).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })),
-    [transactionRows]
+    [transactionRows, directionFilter]
+  );
+
+  const amountBounds = useMemo(() => {
+    if (transactionRows.length === 0) {
+      return { min: 0, max: 50 };
+    }
+
+    const amounts = transactionRows
+      .map((transaction) => Number(transaction.amount) || 0)
+      .filter((amount) => Number.isFinite(amount));
+
+    if (amounts.length === 0) {
+      return { min: 0, max: 50 };
+    }
+
+    const rawMin = Math.min(...amounts);
+    const rawMax = Math.max(...amounts);
+
+    const min = Math.floor(rawMin / 50) * 50;
+    const roundedMax = Math.ceil(rawMax / 50) * 50;
+    const max = roundedMax <= min ? min + 50 : roundedMax;
+
+    return { min, max };
+  }, [transactionRows]);
+
+  const effectiveAmountMin = Math.min(
+    Math.max(amountMinFilter ?? amountBounds.min, amountBounds.min),
+    amountBounds.max
+  );
+
+  const effectiveAmountMax = Math.max(
+    Math.min(amountMaxFilter ?? amountBounds.max, amountBounds.max),
+    amountBounds.min
   );
 
   const filteredTransactionRows = useMemo(() => {
@@ -648,8 +694,8 @@ export function ReportsView({
         transactionAmount >= COMPLIANCE_THRESHOLD
           ? "compliance"
           : transactionAmount >= WARNING_THRESHOLD
-          ? "warning"
-          : "normal";
+            ? "warning"
+            : "normal";
 
       const matchesSearch =
         !query ||
@@ -682,8 +728,16 @@ export function ReportsView({
       const matchesAlert =
         alertFilter === "all" || transactionAlertStatus === alertFilter;
 
+      const matchesAmount =
+        transactionAmount >= effectiveAmountMin &&
+        transactionAmount <= effectiveAmountMax;
+
       return (
-        matchesSearch && matchesCategory && matchesDirection && matchesAlert
+        matchesSearch &&
+        matchesCategory &&
+        matchesDirection &&
+        matchesAlert &&
+        matchesAmount
       );
     });
   }, [
@@ -692,19 +746,25 @@ export function ReportsView({
     categoryFilter,
     directionFilter,
     alertFilter,
+    effectiveAmountMin,
+    effectiveAmountMax,
   ]);
 
   const hasActiveFilters =
     Boolean(searchQuery.trim()) ||
     categoryFilter !== "all" ||
     directionFilter !== "all" ||
-    alertFilter !== "all";
+    alertFilter !== "all" ||
+    amountMinFilter !== null ||
+    amountMaxFilter !== null;
 
   function clearAdvancedFilters() {
     setSearchQuery("");
     setCategoryFilter("all");
     setDirectionFilter("all");
     setAlertFilter("all");
+    setAmountMinFilter(null);
+    setAmountMaxFilter(null);
     setCurrentPage(1);
   }
 
@@ -815,15 +875,15 @@ export function ReportsView({
 
   const selectedTransactionTotals = selectedTransaction
     ? {
-        incoming:
-          selectedTransaction.direction === "incoming"
-            ? Number(selectedTransaction.amount) || 0
-            : 0,
-        outgoing:
-          selectedTransaction.direction === "outgoing"
-            ? Number(selectedTransaction.amount) || 0
-            : 0,
-      }
+      incoming:
+        selectedTransaction.direction === "incoming"
+          ? Number(selectedTransaction.amount) || 0
+          : 0,
+      outgoing:
+        selectedTransaction.direction === "outgoing"
+          ? Number(selectedTransaction.amount) || 0
+          : 0,
+    }
     : { incoming: 0, outgoing: 0 };
 
   const totals = transactionRows.reduce(
@@ -910,17 +970,15 @@ export function ReportsView({
           ].map((s) => (
             <div
               key={s.label}
-              className={`bg-card border rounded p-4 ${
-                s.highlight ? "border-emerald-500/25" : "border-border"
-              }`}
+              className={`bg-card border rounded p-4 ${s.highlight ? "border-emerald-500/25" : "border-border"
+                }`}
             >
               <p className="text-xs text-muted-foreground mb-1.5 font-mono uppercase tracking-wider">
                 {s.label}
               </p>
               <p
-                className={`text-2xl font-semibold ${
-                  s.mono ? "font-mono" : ""
-                } ${s.highlight ? "text-emerald-400" : "text-foreground"}`}
+                className={`text-2xl font-semibold ${s.mono ? "font-mono" : ""
+                  } ${s.highlight ? "text-emerald-400" : "text-foreground"}`}
               >
                 {s.value}
               </p>
@@ -930,561 +988,66 @@ export function ReportsView({
       </div>
 
       {/* Detail table */}
-      <div>
-        <div className="mb-3 space-y-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider">
-              Transaction Detail
-            </p>
-
-            <div className="relative w-full sm:max-w-xs">
-              <Search
-                size={14}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-              />
-              <input
-                type="search"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search transactions..."
-                aria-label="Search transactions"
-                className="h-9 w-full rounded-sm border border-border bg-secondary pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
-            <label className="space-y-1">
-              <span className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
-                Category
-              </span>
-              <select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                aria-label="Filter transactions by category"
-                className="h-9 w-full rounded-sm border border-border bg-secondary px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
-              >
-                <option value="all">All Categories</option>
-                {categoryOptions.map((category) => (
-                  <option key={category} value={category}>
-                    {category}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="space-y-1">
-              <span className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
-                Direction
-              </span>
-              <select
-                value={directionFilter}
-                onChange={(e) =>
-                  setDirectionFilter(e.target.value as DirectionFilter)
-                }
-                aria-label="Filter transactions by direction"
-                className="h-9 w-full rounded-sm border border-border bg-secondary px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
-              >
-                <option value="all">All Directions</option>
-                <option value="incoming">Cash In</option>
-                <option value="outgoing">Cash Out</option>
-              </select>
-            </label>
-
-            <label className="space-y-1">
-              <span className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
-                Alerts
-              </span>
-              <select
-                value={alertFilter}
-                onChange={(e) => setAlertFilter(e.target.value as AlertFilter)}
-                aria-label="Filter transactions by player alert status"
-                className="h-9 w-full rounded-sm border border-border bg-secondary px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
-              >
-                <option value="all">All Alert Levels</option>
-                <option value="normal">No Alert</option>
-                <option value="warning">Warning</option>
-                <option value="compliance">Compliance</option>
-              </select>
-            </label>
-
-            <div className="flex items-end">
-              <button
-                type="button"
-                onClick={clearAdvancedFilters}
-                disabled={!hasActiveFilters}
-                className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-sm border border-border bg-secondary px-3 text-xs text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 lg:w-auto cursor-pointer"
-              >
-                <FilterX size={13} />
-                Clear Filters
-              </button>
-            </div>
-          </div>
-
-          {hasActiveFilters && (
-            <p className="text-[11px] text-muted-foreground font-mono">
-              {filteredTransactionRows.length} of {transactionRows.length}{" "}
-              transactions match the active filters.
-            </p>
-          )}
-        </div>
-
-        <div className="bg-card border border-border rounded overflow-x-auto">
-          <table className="w-full min-w-225 table-fixed text-sm">
-            <colgroup>
-              <col className="w-[18%]" />
-              <col className="w-[22%]" />
-              <col className="w-[9%]" />
-              <col className="w-[24%]" />
-              <col className="w-[12%]" />
-              <col className="w-[15%]" />
-            </colgroup>
-
-            <thead>
-              <tr className="border-b border-border bg-secondary/40">
-                <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">
-                  <button
-                    type="button"
-                    onClick={() => handleSort("dateTime")}
-                    className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors cursor-pointer"
-                  >
-                    Date & Time
-                    {renderSortIcon("dateTime")}
-                  </button>
-                </th>
-                <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">
-                  <button
-                    type="button"
-                    onClick={() => handleSort("player")}
-                    className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors cursor-pointer"
-                  >
-                    Player
-                    {renderSortIcon("player")}
-                  </button>
-                </th>
-                <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">
-                  <button
-                    type="button"
-                    onClick={() => handleSort("direction")}
-                    className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors cursor-pointer"
-                  >
-                    Dir.
-                    {renderSortIcon("direction")}
-                  </button>
-                </th>
-                <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">
-                  <button
-                    type="button"
-                    onClick={() => handleSort("category")}
-                    className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors cursor-pointer"
-                  >
-                    Category
-                    {renderSortIcon("category")}
-                  </button>
-                </th>
-                <th className="text-right px-4 py-2.5 text-xs text-muted-foreground font-medium">
-                  <button
-                    type="button"
-                    onClick={() => handleSort("amount")}
-                    className="ml-auto inline-flex items-center gap-1.5 hover:text-foreground transition-colors cursor-pointer"
-                  >
-                    Amount
-                    {renderSortIcon("amount")}
-                  </button>
-                </th>
-                {/* <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">
-                  Cashier
-                </th> */}
-                <th className="text-right px-4 py-2.5 text-xs text-muted-foreground font-medium">
-                  Details
-                </th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {sortedTransactionRows.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={6}
-                    className="px-4 py-10 text-center text-muted-foreground text-sm"
-                  >
-                    {loadingReport
-                      ? "Loading..."
-                      : hasActiveFilters
-                      ? "No transactions match the active filters."
-                      : "No transactions for this date."}
-                  </td>
-                </tr>
-              ) : (
-                paginatedTransactionRows.map((t, i) => (
-                  <tr
-                    key={t.id}
-                    className={`border-b border-border last:border-0 ${
-                      ((currentPage - 1) * pageSize + i) % 2 === 1
-                        ? "bg-secondary/20"
-                        : ""
-                    }`}
-                  >
-                    <td className="px-4 py-3 text-xs font-mono text-muted-foreground whitespace-nowrap">
-                      {formatDateOnly(t.date)} {t.time}
-                    </td>
-
-                    <td className="px-4 py-3 overflow-hidden">
-                      <p
-                        className="truncate font-semibold"
-                        title={t.playerName}
-                      >
-                        {t.playerName}
-                      </p>
-                      {t.gamerNumber && (
-                        <p className="text-[11px] text-muted-foreground font-mono mt-0.5">
-                          {t.gamerNumber}
-                        </p>
-                      )}
-                    </td>
-
-                    <td className="px-4 py-3">
-                      <span
-                        className={`text-xs px-1.5 py-0.5 rounded-sm font-mono ${
-                          t.direction === "incoming"
-                            ? "bg-sky-500/10 text-sky-400"
-                            : "bg-rose-500/10 text-rose-400"
-                        }`}
-                      >
-                        {t.direction === "incoming" ? "IN" : "OUT"}
-                      </span>
-                    </td>
-
-                    <td className="px-4 py-3 overflow-hidden text-xs text-muted-foreground">
-                      <p className="truncate" title={t.category || "Other"}>
-                        {t.category || "Other"}
-                      </p>
-                    </td>
-
-                    <td className="px-4 py-3 text-right font-mono text-xs text-foreground">
-                      {fmt(Number(t.amount) || 0)}
-                    </td>
-
-                    {/* <td className="px-4 py-3 text-xs text-muted-foreground">
-                      {t.cashierName}
-                    </td> */}
-
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => openTransactionDetails(t)}
-                        className="inline-flex items-center gap-1.5 rounded-sm border border-border bg-secondary px-2.5 py-1.5 text-xs text-muted-foreground 
-                        transition-colors hover:text-foreground hover:bg-accent/10 cursor-pointer"
-                      >
-                        <Eye size={12} />
-                        View Details
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-
-            {transactionRows?.length > 0 && (
-              <tfoot>
-                <tr className="border-t border-border bg-secondary/40">
-                  <td
-                    colSpan={4}
-                    className="px-4 py-2.5 text-xs font-semibold text-muted-foreground"
-                  >
-                    Totals
-                  </td>
-                  <td className="px-4 py-2.5 text-right font-mono text-xs font-semibold text-foreground">
-                    In {fmt(totals.incoming)} / Out {fmt(totals.outgoing)}
-                  </td>
-                  <td className="px-4 py-2.5 text-right text-xs text-muted-foreground">
-                    {totals.txns} txns
-                  </td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
-
-        {sortedTransactionRows.length > 0 && (
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-x border-b border-border rounded-b bg-card px-4 py-3">
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              <span>
-                Showing {(currentPage - 1) * pageSize + 1}–
-                {Math.min(currentPage * pageSize, sortedTransactionRows.length)}{" "}
-                of {sortedTransactionRows.length}
-              </span>
-
-              <label className="flex items-center gap-2">
-                Rows
-                <select
-                  value={pageSize}
-                  onChange={(e) => setPageSize(Number(e.target.value))}
-                  className="h-8 rounded-sm border border-border bg-secondary px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
-                >
-                  {[10, 25, 50, 100].map((size) => (
-                    <option key={size} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-                disabled={currentPage === 1}
-                className="inline-flex h-8 items-center gap-1 rounded-sm border border-border bg-secondary px-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
-              >
-                <ChevronLeft size={13} />
-                Previous
-              </button>
-
-              <span className="min-w-20 text-center text-xs text-muted-foreground font-mono">
-                Page {currentPage} of {totalPages}
-              </span>
-
-              <button
-                type="button"
-                onClick={() =>
-                  setCurrentPage((page) => Math.min(totalPages, page + 1))
-                }
-                disabled={currentPage === totalPages}
-                className="inline-flex h-8 items-center gap-1 rounded-sm border border-border bg-secondary px-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
-              >
-                Next
-                <ChevronRight size={13} />
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+      <ReportsViewTable
+        transactionRows={transactionRows}
+        filteredTransactionRows={filteredTransactionRows}
+        paginatedTransactionRows={paginatedTransactionRows}
+        totals={totals}
+        categoryOptions={categoryOptions}
+        searchQuery={searchQuery}
+        setSearchQuery={(value) => {
+          setSearchQuery(value);
+          setCurrentPage(1);
+        }}
+        categoryFilter={categoryFilter}
+        setCategoryFilter={(value) => {
+          setCategoryFilter(value);
+          setCurrentPage(1);
+        }}
+        directionFilter={directionFilter}
+        setDirectionFilter={(value) => {
+          setDirectionFilter(value);
+          setCurrentPage(1);
+        }}
+        alertFilter={alertFilter}
+        setAlertFilter={(value) => {
+          setAlertFilter(value);
+          setCurrentPage(1);
+        }}
+        amountBounds={amountBounds}
+        amountMin={effectiveAmountMin}
+        amountMax={effectiveAmountMax}
+        setAmountMin={(value) => {
+          setAmountMinFilter(value);
+          setCurrentPage(1);
+        }}
+        setAmountMax={(value) => {
+          setAmountMaxFilter(value);
+          setCurrentPage(1);
+        }}
+        clearAdvancedFilters={clearAdvancedFilters}
+        hasActiveFilters={hasActiveFilters}
+        handleSort={handleSort}
+        renderSortIcon={renderSortIcon}
+        sortedTransactionRows={sortedTransactionRows}
+        currentPage={safeCurrentPage}
+        setCurrentPage={setCurrentPage}
+        totalPages={totalPages}
+        pageSize={pageSize}
+        setPageSize={setPageSize}
+        loadingReport={loadingReport}
+        openTransactionDetails={openTransactionDetails}
+      />
 
       {selectedTransaction && (
-        <Modal onClose={closeTransactionDetails}>
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h3 className="text-sm font-semibold">Transaction Log Details</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {selectedTransaction.playerName}
-                {selectedTransaction.gamerNumber
-                  ? ` • ${selectedTransaction.gamerNumber}`
-                  : ""}
-              </p>
-              <p className="text-[11px] text-muted-foreground font-mono mt-1">
-                Transaction ID: {selectedTransaction.id}
-              </p>
-            </div>
-
-            <button
-              onClick={closeTransactionDetails}
-              className="text-muted-foreground hover:text-foreground cursor-pointer"
-            >
-              <X size={15} />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
-            <div className="rounded-sm border border-border bg-secondary/40 p-3">
-              <p className="text-[11px] text-muted-foreground font-mono uppercase tracking-wider mb-1">
-                Cash In
-              </p>
-              <p className="text-sm font-mono font-semibold text-foreground">
-                {fmt(selectedTransactionTotals.incoming)}
-              </p>
-            </div>
-
-            <div className="rounded-sm border border-border bg-secondary/40 p-3">
-              <p className="text-[11px] text-muted-foreground font-mono uppercase tracking-wider mb-1">
-                Cash Out
-              </p>
-              <p className="text-sm font-mono font-semibold text-foreground">
-                {fmt(selectedTransactionTotals.outgoing)}
-              </p>
-            </div>
-
-            <div className="rounded-sm border border-border bg-secondary/40 p-3">
-              <p className="text-[11px] text-muted-foreground font-mono uppercase tracking-wider mb-1">
-                Logs
-              </p>
-              <p className="text-sm font-mono font-semibold text-foreground">
-                {selectedTransactionLogs.length}
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-3 max-h-[65vh] overflow-auto pr-1">
-            {loadingTransactionLogs ? (
-              <div className="rounded-sm border border-border bg-secondary/30 px-4 py-8 text-center text-sm text-muted-foreground">
-                <Loader2
-                  size={15}
-                  className="mx-auto mb-2 animate-spin text-accent"
-                />
-                Loading transaction logs...
-              </div>
-            ) : selectedTransactionLogs.length === 0 ? (
-              <div className="rounded-sm border border-border bg-secondary/30 px-4 py-8 text-center text-sm text-muted-foreground">
-                No logs found for this transaction.
-              </div>
-            ) : (
-              selectedTransactionLogs.map((log) => {
-                const changedValues = getChangedLogValues(
-                  log.oldValuesJson,
-                  log.newValuesJson
-                );
-                const changedFieldRows = getChangedFieldRows(
-                  changedValues.oldValues,
-                  changedValues.newValues
-                );
-                const values = changedValues.newValues;
-                const changedBy =
-                  cashiers?.find((c) => c.id === log.changedByCashierId)?.name ??
-                  log.changedByCashierId ??
-                  "Unknown";
-
-                return (
-                  <div
-                    key={log.id}
-                    className="rounded border border-border bg-card overflow-hidden"
-                  >
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-border bg-secondary/30 px-3 py-2.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="rounded-sm bg-accent/10 px-1.5 py-0.5 text-xs font-mono text-accent">
-                          {log.action}
-                        </span>
-
-                        {values.direction && (
-                          <span
-                            className={`rounded-sm px-1.5 py-0.5 text-xs font-mono ${
-                              values.direction === "incoming"
-                                ? "bg-sky-500/10 text-sky-400"
-                                : "bg-rose-500/10 text-rose-400"
-                            }`}
-                          >
-                            {values.direction === "incoming" ? "IN" : "OUT"}
-                          </span>
-                        )}
-
-                        {typeof values.amount === "number" && (
-                          <span className="text-xs font-mono text-foreground">
-                            {fmt(values.amount)}
-                          </span>
-                        )}
-                      </div>
-
-                      <span className="text-xs text-muted-foreground font-mono">
-                        {formatLogDateTime(log.createdAtUtc)}
-                      </span>
-                    </div>
-
-                    <div className="p-3 space-y-3">
-                      <div>
-                        <p className="text-[11px] text-muted-foreground font-mono uppercase tracking-wider mb-1">
-                          Reason
-                        </p>
-                        <p className="text-xs text-foreground">
-                          {log.reason || "—"}
-                        </p>
-                      </div>
-
-                      <div>
-                        <div className="mb-2 flex items-center justify-between gap-3">
-                          <p className="text-[11px] text-muted-foreground font-mono uppercase tracking-wider">
-                            Changes
-                          </p>
-
-                          <span className="rounded-full border border-border bg-secondary/50 px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
-                            {changedFieldRows.length}{" "}
-                            {changedFieldRows.length === 1 ? "field" : "fields"}
-                          </span>
-                        </div>
-
-                        {changedFieldRows.length === 0 ? (
-                          <div className="flex items-center justify-center gap-2 rounded-sm border border-border bg-secondary/30 px-3 py-5 text-xs text-muted-foreground">
-                            <Minus size={13} />
-                            No value changes were recorded.
-                          </div>
-                        ) : (
-                          <div className="overflow-hidden rounded-sm border border-border">
-                            {changedFieldRows.map((field, index) => {
-                              const oldDisplayValue = field.hasOldValue
-                                ? formatLogValue(field.key, field.oldValue)
-                                : "Not set";
-                              const newDisplayValue = field.hasNewValue
-                                ? formatLogValue(field.key, field.newValue)
-                                : "Removed";
-
-                              return (
-                                <div
-                                  key={field.key}
-                                  className={`p-3 ${
-                                    index !== changedFieldRows.length - 1
-                                      ? "border-b border-border"
-                                      : ""
-                                  }`}
-                                >
-                                  <p className="mb-2 text-xs font-semibold text-foreground">
-                                    {field.label}
-                                  </p>
-
-                                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-stretch">
-                                    <div className="min-w-0 rounded-sm border border-rose-500/20 bg-rose-500/5 p-2.5">
-                                      <p className="mb-1 text-[9px] font-mono uppercase tracking-wider text-rose-400">
-                                        Previous
-                                      </p>
-                                      <p
-                                        className="wrap-break-word whitespace-pre-wrap text-xs text-muted-foreground"
-                                        title={oldDisplayValue}
-                                      >
-                                        {oldDisplayValue}
-                                      </p>
-                                    </div>
-
-                                    <div className="flex items-center justify-center">
-                                      <div className="flex size-7 rotate-90 items-center justify-center rounded-full border border-border bg-secondary text-muted-foreground sm:rotate-0">
-                                        <ArrowRight size={13} />
-                                      </div>
-                                    </div>
-
-                                    <div className="min-w-0 rounded-sm border border-emerald-500/20 bg-emerald-500/5 p-2.5">
-                                      <p className="mb-1 text-[9px] font-mono uppercase tracking-wider text-emerald-400">
-                                        Updated
-                                      </p>
-                                      <p
-                                        className="wrap-break-word whitespace-pre-wrap text-xs font-medium text-foreground"
-                                        title={newDisplayValue}
-                                      >
-                                        {newDisplayValue}
-                                      </p>
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex items-center justify-between gap-3 pt-1">
-                        <p className="text-xs text-muted-foreground">
-                          Changed by{" "}
-                          <span className="text-foreground">{changedBy}</span>
-                        </p>
-
-                        {values.category && (
-                          <p className="text-xs text-muted-foreground">
-                            {values.category}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </Modal>
+        <SelectedTransactionModal
+          selectedTransaction={selectedTransaction}
+          selectedTransactionLogs={selectedTransactionLogs as TransactionLog[]}
+          selectedTransactionTotals={selectedTransactionTotals}
+          loadingTransactionLogs={loadingTransactionLogs}
+          cashiers={cashiers}
+          closeTransactionDetails={closeTransactionDetails}
+        />
       )}
     </div>
   );

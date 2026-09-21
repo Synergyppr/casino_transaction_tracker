@@ -253,11 +253,13 @@ export async function getDailyReport(payload: {
   endDateTime: string;
 }): Promise<ApiDailyReport | null> {
   // console.log("Fetching daily report for business date:", payload);
+  // console.log("Daily report payload:", payload);
 
   const res = await post<ApiDailyReport>(
     "/GetDailyReportByBusinessDate",
     payload
   );
+
   if (res.status !== "200" || !res.data) return null;
 
   // console.log("Fetched daily report:", res.data);
