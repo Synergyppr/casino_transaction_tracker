@@ -3,6 +3,7 @@ export type Direction = "incoming" | "outgoing";
 export type AlertStatus = "normal" | "warning" | "compliance";
 
 export interface CreateCashier {
+  propertyIds?: string[];
   firstName: string;
   lastName: string;
   employeeCode?: string;
@@ -14,8 +15,11 @@ export interface CreateCashier {
 }
 
 export interface Cashier {
-  id: string;
   name: string;
+  propertyIds?: string[];
+  id: string;
+  firstName: string;
+  lastName: string; 
   pin: string;
   role: Role;
   active: boolean;
@@ -25,6 +29,7 @@ export interface Cashier {
 }
 
 export interface Transaction {
+  notes?: string | null;
   id: string;
   direction: Direction;
   category: string;
@@ -33,12 +38,18 @@ export interface Transaction {
   playerId?: string;
   playerName?: string;
   cashierName?: string;
-  status?: AlertStatus;
+  status?: string;
   referenceNumber?: string;
   date?: string;
 }
 
 export interface CreatePlayer {
+  race?: string;
+  gender?: string;
+  age?: string;
+  build?: string;
+  description?: string;
+  refused?: boolean;
   gamerNumber?: string;
   firstName: string;
   lastName: string;
@@ -47,6 +58,15 @@ export interface CreatePlayer {
 }
 
 export interface Player {
+  firstName?: string;
+  lastName?: string;
+  active?: boolean;
+  race?: string | null;
+  gender?: string | null;
+  age?: string | null;
+  build?: string | null;
+  description?: string | null;
+  refused?: boolean | null;
   id: string;
   name: string;
   date: string;
@@ -66,6 +86,8 @@ export interface ApiResponse<T> {
 }
 
 export interface ApiCashier {
+  propertyIds?: string[];
+  properties?: {id: string; name?: string}[];
   id: string;
   firstName: string;
   lastName: string;
@@ -76,11 +98,23 @@ export interface ApiCashier {
 }
 
 export interface ApiPlayer {
+  firstName?: string | null;
+  lastName?: string | null;
+  race?: string | null;
+  gender?: string | null;
+  age?: string | null;
+  build?: string | null;
+  description?: string | null;
+  refused?: boolean | null;
+  status?: string;
+  totalTransactions?: number;
+  totalCashIn?: number;
+  totalCashOut?: number;
   id: string;
   gamerNumber: string;
   name: string;
   date: string;
-  transactions: ApiTransaction[];
+  transactions: ApiTransactionSummary[];
   createdBy: string | null;
   phone: string | null;
   active: boolean;
@@ -88,7 +122,29 @@ export interface ApiPlayer {
 }
 
 // Create Transaction Request
-export interface ApiTransaction {
+export interface ApiTransactionSummary {
+  createdBy?: string;
+  id: string;
+  direction: string;
+  category: string;
+  amount: number;
+  date?: string;
+  cashierName?: string;
+  playerId?: string;
+  playerName?: string;
+  status?: string;
+  referenceNumber?: string;
+  notes?: string | null;
+  createdByCashierId?: string;
+}
+
+export interface ApiTransaction extends ApiTransactionSummary {
+  propertyId?: string;
+  transactionAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  lockedAt?: string | null;
+  archivedAt?: string | null;
   id: string;
   direction: string;
   category: string;
@@ -109,7 +165,7 @@ export interface ApiTransaction {
 }
 
 export interface ApiDailyReport {
-  businessDate: string;
+  businessDate?: string;
   players: number;
   transactions: number;
   totalIncoming: number;
@@ -117,17 +173,23 @@ export interface ApiDailyReport {
   net: number;
   complianceAlerts: number;
   playerDetail: ApiDailyReportPlayer[];
-  createdBy: string;
+  createdBy?: string;
 }
 
 export interface ApiDailyReportPlayer {
   playerId: string;
-  playerName: string;
-  totalIncoming: number;
-  totalOutgoing: number;
-  transactionCount: number;
+  player: string;
+  playerName?: string;
+  firstName?: string;
+  lastName?: string;
+  incoming: number;
+  outgoing: number;
+  net: number;
+  totalIncoming?: number;
+  totalOutgoing?: number;
+  transactionCount?: number;
   status: string;
-  transactions: ApiTransaction[];
+  transactions: ApiTransactionSummary[];
 }
 
 // ---------------   Admin View   ---------------
@@ -154,4 +216,58 @@ export interface Logs {
   reason: string;
   changedByCashierId: string;
   createdAtUtc: string;
+}
+
+export interface LoginCashierRequest {
+  pin: string;
+  propertyId: string;
+}
+
+export interface UpdateCashierRequest extends Partial<CreateCashier> {
+  id: string;
+  email?: string;
+  updatedBy?: string;
+}
+
+export interface UpdatePlayerRequest extends Partial<CreatePlayer> {
+  id: string;
+  active?: boolean;
+  updatedBy?: string;
+}
+
+export interface DeleteRecordRequest {
+  id: string;
+  deletedBy: string;
+  reason: string;
+}
+
+export interface CreateTransactionRequest {
+  playerId: string;
+  propertyId: string;
+  createdByCashierId: string;
+  direction: string;
+  category: string;
+  amount: number;
+  notes?: string;
+}
+
+export interface UpdateTransactionRequest extends Partial<Pick<CreateTransactionRequest, "direction" | "category" | "amount" | "notes">> {
+  id: string;
+  updatedByCashierId: string;
+  status?: string;
+  reason?: string;
+}
+
+export interface LockTransactionRequest {
+  id: string;
+  lockedByCashierId: string;
+  reason: string;
+}
+
+export interface DailyReportRequest {
+  propertyId: string;
+  startDateTime: string;
+  endDateTime: string;
+  direction?: string;
+  status?: string;
 }

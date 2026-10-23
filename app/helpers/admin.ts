@@ -3,6 +3,7 @@ import type { Cashier, Role } from "../lib/types";
 import { createCashierApi, updateCashierApi } from "../lib/api";
 
 export interface AddCashierDraft {
+  propertyIds: string[];
   firstName: string;
   lastName: string;
   pin: string;
@@ -12,6 +13,7 @@ export interface AddCashierDraft {
 }
 
 export interface EditCashierDraft {
+  propertyIds?: string[];
   id: string;
   firstName: string;
   lastName: string;
@@ -23,6 +25,7 @@ export interface EditCashierDraft {
 }
 
 export const EMPTY_CASHIER_DRAFT: AddCashierDraft = {
+  propertyIds: [],
   firstName: "",
   lastName: "",
   pin: "",
@@ -41,12 +44,11 @@ export function getCashierNameParts(name: string) {
 }
 
 export function buildEditDraft(cashier: Cashier): EditCashierDraft {
-  const { firstName, lastName } = getCashierNameParts(cashier.name);
-
   return {
     id: cashier.id,
-    firstName,
-    lastName,
+    propertyIds: cashier.propertyIds,
+    firstName: cashier.firstName,
+    lastName: cashier.lastName,
     pin: "",
     role: cashier.role,
     employeeCode: cashier.employeeCode || "",
@@ -56,6 +58,7 @@ export function buildEditDraft(cashier: Cashier): EditCashierDraft {
 }
 
 export function validateCreateCashierDraft(draft: AddCashierDraft) {
+  if (!draft.propertyIds.length) return "Select at least one property.";
   if (!draft.firstName.trim()) return "First name is required.";
   if (!draft.lastName.trim()) return "Last name is required.";
   if (!/^\d{4}$/.test(draft.pin)) return "PIN must be exactly 4 digits.";
@@ -73,6 +76,7 @@ export function validateEditCashierDraft(draft: EditCashierDraft) {
 
 export async function createCashierFromDraft(draft: AddCashierDraft) {
   return createCashierApi({
+    propertyIds: draft.propertyIds,
     firstName: draft.firstName.trim(),
     lastName: draft.lastName.trim(),
     pin: draft.pin,
@@ -88,6 +92,7 @@ export async function updateCashierFromDraft(
 ) {
   const payload: Parameters<typeof updateCashierApi>[0] = {
     id: draft.id,
+    propertyIds: draft.propertyIds,
     firstName: draft.firstName,
     lastName: draft.lastName,
     role: draft.role,
@@ -104,11 +109,15 @@ export async function updateCashierFromDraft(
   await updateCashierApi(payload);
 }
 
-export async function toggleCashierActiveApi(cashier: Cashier, updatedBy: string) {
+export async function toggleCashierActiveApi(
+  cashier: Cashier,
+  updatedBy: string
+) {
   const { firstName, lastName } = getCashierNameParts(cashier.name);
 
   await updateCashierApi({
     id: cashier.id,
+    propertyIds: cashier.propertyIds,
     firstName,
     lastName,
     active: !cashier.active,

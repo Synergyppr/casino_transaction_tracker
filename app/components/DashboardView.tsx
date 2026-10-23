@@ -1,4 +1,5 @@
 "use client";
+import { PageHeading } from "./PageHeading";
 import { useMemo, useState } from "react";
 import {
   AlertTriangle,
@@ -7,7 +8,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import type { Player, Cashier } from "../lib/types";
-import { getPlayerTotals, getStatus, fmt, fmtDate } from "../lib/utils";
+import { getPlayerTotals, getStatus, fmt } from "../lib/utils";
 import { PlayerTable } from "./PlayerTable";
 
 const PLAYERS_PER_PAGE = 5;
@@ -89,11 +90,11 @@ export function DashboardView({
     pagination.selectedDate === selectedDate
       ? pagination
       : {
-          selectedDate,
-          compliancePage: 1,
-          warningPage: 1,
-          playersPage: 1,
-        };
+        selectedDate,
+        compliancePage: 1,
+        warningPage: 1,
+        playersPage: 1,
+      };
 
   const getCashierName = (value?: string) => {
     if (!value) return "—";
@@ -247,6 +248,15 @@ export function DashboardView({
 
   return (
     <div className="p-5 space-y-5">
+      <div className="flex justify-between">
+        <PageHeading title="Dashboard" subtitle="Review player activity, transaction totals, and compliance alerts." icon={CheckCircle} />
+        <div className="flex items-center gap-5">
+          <div className="flex items-center gap-1.5 text-sm">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-emerald-400 font-medium">Live</span>
+          </div>
+        </div>
+      </div>
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         {[
@@ -281,18 +291,16 @@ export function DashboardView({
         ].map((s) => (
           <div
             key={s.label}
-            className={`bg-card border rounded p-4 ${
-              s.accent ? "border-amber-500/25" : "border-border"
-            }`}
+            className={`bg-card border rounded p-4 ${s.accent ? "border-amber-500/25" : "border-border"
+              }`}
           >
             <p className="text-xs text-muted-foreground mb-1.5 font-mono uppercase tracking-wider">
               {s.label}
             </p>
 
             <p
-              className={`text-2xl font-semibold ${s.mono ? "font-mono" : ""} ${
-                s.accent ? "text-amber-400" : "text-foreground"
-              }`}
+              className={`text-2xl font-semibold ${s.mono ? "font-mono" : ""} ${s.accent ? "text-amber-400" : "text-foreground"
+                }`}
             >
               {s.value}
             </p>
@@ -404,7 +412,7 @@ export function DashboardView({
 
       <div>
         <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider mb-3">
-          All Players {fmtDate(selectedDate)}
+          All Players
         </p>
 
         <PlayerTable

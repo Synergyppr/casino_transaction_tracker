@@ -1,15 +1,19 @@
 "use client";
+import { ConfirmLogout } from "../components/ConfirmLogout";
+import { SwitchProperty } from "../components/SwitchProperty";
+import { canAccessView } from "../lib/permissions";
+import { getSelectedProperty } from "../lib/propertyTheme";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart2,
   LayoutDashboard,
-  LogOut,
   Menu,
   Plus,
   Settings,
   Shield,
   UsersRound,
+  Building2,
   X,
 } from "lucide-react";
 
@@ -17,14 +21,15 @@ import type { Cashier } from "../lib/types";
 import RegisteredPlayersView from "../components/RegisteredPlayersView";
 
 const SESSION_KEY = "casino_session";
-const TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
+const TIMEOUT_MS = 10 * 60 * 1000; // 1 hour
 
 type NavigationView =
   | "dashboard"
   | "entry"
   | "registered-players"
   | "reports"
-  | "admin";
+  | "admin"
+  | "properties";
 
 interface NavigationItem {
   id: NavigationView;
@@ -219,7 +224,7 @@ export default function RegisteredPlayersPage() {
      PERMISSIONS
   --------------------------------------------------------- */
 
-  const canAdmin = user?.role === "supervisor" || user?.role === "manager";
+  const canAdmin = user?.role === "manager";
 
   const canReports = user?.role === "supervisor" || user?.role === "manager";
 
@@ -250,24 +255,30 @@ export default function RegisteredPlayersPage() {
 
       ...(canReports
         ? [
-            {
-              id: "reports" as const,
-              icon: BarChart2,
-              label: "Reports",
-              href: "/reports",
-            },
-          ]
+          {
+            id: "reports" as const,
+            icon: BarChart2,
+            label: "Reports",
+            href: "/reports",
+          },
+        ]
         : []),
 
       ...(canAdmin
         ? [
-            {
-              id: "admin" as const,
-              icon: Settings,
-              label: "Administration",
-              href: "/administration",
-            },
-          ]
+          {
+            id: "admin" as const,
+            icon: Settings,
+            label: "Administration",
+            href: "/administration",
+          },
+          {
+            id: "properties" as const,
+            icon: Building2,
+            label: "Properties",
+            href: "/property-management",
+          },
+        ]
         : []),
     ],
     [canAdmin, canReports]
@@ -313,9 +324,8 @@ export default function RegisteredPlayersPage() {
       {/* Sidebar */}
 
       <aside
-        className={`fixed left-0 top-0 z-50 flex h-screen w-52 shrink-0 flex-col border-r border-border bg-[#0a0e18] transition-transform duration-200 lg:sticky lg:translate-x-0 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
+        className={`fixed left-0 top-0 z-50 flex h-screen w-52 shrink-0 flex-col border-r border-border bg-[#0a0e18] transition-transform duration-200 lg:sticky lg:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
       >
         {/* Branding */}
 
@@ -330,7 +340,7 @@ export default function RegisteredPlayersPage() {
             </div>
 
             <p className="mt-0.5 font-mono text-xs text-muted-foreground">
-              Player Tracking
+              Satellite: {getSelectedProperty()?.name || "Not selected"}
             </p>
           </div>
 
@@ -347,7 +357,7 @@ export default function RegisteredPlayersPage() {
         {/* Navigation */}
 
         <nav className="flex-1 space-y-0.5 overflow-auto p-2.5">
-          {navigationItems.map((item) => {
+          {navigationItems.filter((item) => canAccessView(user.role, item.id)).map((item) => {
             const active =
               item.href === "/"
                 ? pathname === "/"
@@ -358,11 +368,10 @@ export default function RegisteredPlayersPage() {
                 key={item.id}
                 type="button"
                 onClick={() => navigateTo(item.href)}
-                className={`flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-sm transition-colors ${
-                  active
+                className={`flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-sm transition-colors ${active
                     ? "bg-accent/15 font-medium text-accent"
                     : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                }`}
+                  }`}
               >
                 <item.icon size={14} />
 
@@ -372,6 +381,7 @@ export default function RegisteredPlayersPage() {
           })}
         </nav>
 
+        <div className="px-2.5 pb-2"><SwitchProperty user={user} /></div>
         {/* User */}
 
         <div className="border-t border-border p-2.5">
@@ -383,14 +393,7 @@ export default function RegisteredPlayersPage() {
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={logout}
-            className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-          >
-            <LogOut size={14} />
-            Sign Out
-          </button>
+          <ConfirmLogout onLogout={logout} />
         </div>
       </aside>
 
@@ -421,7 +424,7 @@ export default function RegisteredPlayersPage() {
         {/* Registered Players */}
 
         <div className="min-h-0 flex-1">
-          <RegisteredPlayersView />
+          <RegisteredPlayersView updatedBy={user.name} />
         </div>
       </main>
     </div>

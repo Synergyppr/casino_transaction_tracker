@@ -32,7 +32,7 @@ const DuplicatePlayerModal = ({
           <h3 className="text-sm font-semibold">Possible Duplicate Player</h3>
           <p className="text-xs text-muted-foreground mt-1">
             A similar name already exists for today. How would you like to
-            proceed?
+            proceed? Select a record above or create a separate player.
           </p>
         </div>
       </div>
@@ -42,31 +42,27 @@ const DuplicatePlayerModal = ({
           const { incoming, outgoing } = getPlayerTotals(m);
 
           return (
-            <div
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => {
+                openTxn(m);
+                setDupModal(null);
+                resetPlayerDraft();
+              }}
               key={m.id}
-              className="flex items-center justify-between text-xs"
+              className="w-full flex flex-wrap items-center justify-between gap-2 rounded-sm border border-border p-3 text-left text-xs hover:border-accent disabled:opacity-50"
             >
-              <span className="font-semibold text-foreground">{m.name}</span>
+              <span className="font-semibold text-foreground">{m.name}<span className="block text-[11px] text-muted-foreground">{m.gamerNumber || m.id}</span></span>
               <span className="font-mono text-muted-foreground">
                 IN {fmt(incoming)} &middot; OUT {fmt(outgoing)}
               </span>
-            </div>
+            </button>
           );
         })}
       </div>
 
       <div className="flex flex-col sm:flex-row gap-2">
-        <button
-          onClick={() => {
-            openTxn(dupModal?.matches?.[0] as Player);
-            setDupModal(null);
-            resetPlayerDraft();
-          }}
-          className="flex-1 h-9 bg-accent text-white rounded-sm text-sm font-medium hover:bg-accent/85 transition-colors"
-        >
-          Use Existing Record
-        </button>
-
         <button
           onClick={() => createPlayer()}
           disabled={saving}

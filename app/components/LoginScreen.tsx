@@ -1,14 +1,19 @@
 "use client";
-
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Building2, ChevronDown, Loader2, Shield } from "lucide-react";
 import type { Cashier } from "../lib/types";
 import { loginCashier } from "../lib/api";
+import {
+  applyPropertyTheme,
+  getPropertyTheme,
+  saveSelectedProperty,
+} from "../lib/propertyTheme";
 
 export interface Property {
   id: string;
   name: string;
+  primaryColor?: string;
+  secondaryColor?: string;
 }
 
 interface LoginScreenProps {
@@ -18,15 +23,12 @@ interface LoginScreenProps {
   propertiesError?: string;
 }
 
-const SELECTED_PROPERTY_KEY = "casino_selected_property";
-
 export function LoginScreen({
   onLogin,
   properties,
   propertiesLoading = false,
   propertiesError = "",
 }: LoginScreenProps) {
-  const router = useRouter();
 
   const [selectedPropertyId, setSelectedPropertyId] = useState("");
   const [pin, setPin] = useState("");
@@ -46,10 +48,11 @@ export function LoginScreen({
     const property = properties.find((item) => item.id === propertyId);
 
     if (property) {
-      sessionStorage.setItem(SELECTED_PROPERTY_KEY, JSON.stringify(property));
-      sessionStorage.setItem("casino_selected_property", propertyId);
+      saveSelectedProperty(property);
+      applyPropertyTheme(property);
     } else {
-      sessionStorage.removeItem(SELECTED_PROPERTY_KEY);
+      sessionStorage.removeItem("casino_selected_property");
+      applyPropertyTheme(null);
     }
   }
 
@@ -93,22 +96,15 @@ export function LoginScreen({
          * the authenticated application.
          */
         if (selectedProperty) {
-          sessionStorage.setItem(
-            SELECTED_PROPERTY_KEY,
-            JSON.stringify(selectedProperty)
-          );
+          saveSelectedProperty(selectedProperty);
         }
 
-        setTimeout(() => {
-          onLogin(cashier);
-        }, 180);
-
-        router.push("/daily-entry");
+        onLogin(cashier);
       } catch (err) {
         setTimeout(() => {
           setShaking(true);
 
-          setError(err instanceof Error ? err.message : "Invalid PIN");
+          setError(err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError") ? "Login timed out. Please enter your PIN again." : err instanceof Error ? err.message : "Invalid PIN");
 
           setTimeout(() => {
             setPin("");
@@ -149,6 +145,14 @@ export function LoginScreen({
           </p>
         </div>
 
+        <div className="mb-5">
+          <h2 className="text-lg font-semibold">
+            Sign In
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Select your property and enter your PIN to begin.
+          </p>
+        </div>
         {/* Property */}
         <div className="mb-7">
           <label
@@ -211,18 +215,28 @@ export function LoginScreen({
             )}
 
           {selectedProperty && (
-            <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-              {selectedProperty.name}
+            <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+                <span className="truncate">{selectedProperty.name}</span>
+              </span>
+              <span className="flex shrink-0 items-center gap-1" aria-label="Property theme colors">
+                {Object.values(getPropertyTheme(selectedProperty)).map((color) => (
+                  <span
+                    key={color}
+                    className="h-3.5 w-3.5 rounded-full border border-white/15"
+                    style={{ backgroundColor: color }}
+                  />
+                ))}
+              </span>
             </div>
           )}
         </div>
 
         {/* PIN dots */}
         <div
-          className={`flex justify-center gap-3 mb-7 transition-all ${
-            pinDisabled ? "opacity-50" : ""
-          }`}
+          className={`flex justify-center gap-3 mb-7 transition-all ${pinDisabled ? "opacity-50" : ""
+            }`}
           style={{
             animation: shaking ? "shake 0.4s ease" : "none",
           }}
@@ -230,11 +244,10 @@ export function LoginScreen({
           {[0, 1, 2, 3].map((i) => (
             <div
               key={i}
-              className={`w-2.5 h-2.5 rounded-full transition-all duration-150 ${
-                i < pin.length
+              className={`w-2.5 h-2.5 rounded-full transition-all duration-150 ${i < pin.length
                   ? "bg-accent scale-110"
                   : "bg-secondary border border-border"
-              }`}
+                }`}
             />
           ))}
         </div>
@@ -250,9 +263,8 @@ export function LoginScreen({
 
         {/* Keypad */}
         <div
-          className={`grid grid-cols-3 gap-2 transition-opacity ${
-            pinDisabled ? "opacity-50" : "opacity-100"
-          }`}
+          className={`grid grid-cols-3 gap-2 transition-opacity ${pinDisabled ? "opacity-50" : "opacity-100"
+            }`}
         >
           {keys.map((k, i) => {
             if (!k) {

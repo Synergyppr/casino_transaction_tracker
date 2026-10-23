@@ -36,27 +36,27 @@ export const CASH_OUT_TYPES = [
 export const SEED_CASHIERS: Cashier[] = [
   {
     id: "c1",
-    name: "Maria Santos",
+    name: "Maria Santos", firstName: "Maria", lastName: "Santos",
     pin: "1234",
     role: "cashier",
     active: true,
   },
   {
     id: "c2",
-    name: "Carlos Reyes",
+    name: "Carlos Reyes", firstName: "Carlos", lastName: "Reyes",
     pin: "5678",
     role: "cashier",
     active: true,
   },
-  { id: "c3", name: "Ana Lopez", pin: "9012", role: "cashier", active: true },
+  { id: "c3", name: "Ana Lopez", firstName: "Ana", lastName: "Lopez", pin: "9012", role: "cashier", active: true },
   {
     id: "c4",
-    name: "David Torres",
+    name: "David Torres", firstName: "David", lastName: "Torres",
     pin: "0000",
     role: "supervisor",
     active: true,
   },
-  { id: "c5", name: "Sandra Vega", pin: "1111", role: "manager", active: true },
+  { id: "c5", name: "Sandra Vega", firstName: "Sandra", lastName: "Vega", pin: "1111", role: "manager", active: true },
 ];
 
 export const TODAY = new Intl.DateTimeFormat("en-CA", {
@@ -66,8 +66,16 @@ export const TODAY = new Intl.DateTimeFormat("en-CA", {
   day: "2-digit",
 }).format(new Date());
 
-export const START_OF_TODAY = `${TODAY}T00:00:00`;
-export const END_OF_TODAY = `${TODAY}T23:59:59.999`;
+
+export const START_OF_TODAY = (() => {
+  const d = new Date(TODAY);
+  return d.toISOString().split("T")[0];
+})();
+
+export const END_OF_TODAY = (() => {
+  const d = new Date(TODAY);
+  return d.toISOString().split("T")[0];
+})();
 
 function addDaysToDate(date: string, days: number): string {
   const [year, month, day] = date.split("-").map(Number);

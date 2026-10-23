@@ -1,11 +1,13 @@
 "use client";
+import { formatPhoneNumber } from "../lib/formatPhone";
+import EditPlayerModal, { type EditPlayerDraft } from "./modals/EditPlayerModal";
+import { updatePlayerApi } from "../lib/api";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ChevronDown,
+  Pencil,
   ChevronLeft,
   ChevronRight,
-  ChevronUp,
   Loader2,
   RefreshCw,
   Search,
@@ -24,6 +26,11 @@ export interface RegisteredPlayerTransaction {
 }
 
 export interface RegisteredPlayer {
+  firstName?: string;
+  lastName?: string;
+  totalTransactions?: number;
+  totalCashIn?: number;
+  totalCashOut?: number;
   id: string;
   gamerNumber: string;
   name: string;
@@ -106,16 +113,16 @@ async function getAllRegisteredPlayers(
 
     throw new Error(
       apiPayload?.message ||
-        apiPayload?.error ||
-        `Failed to load registered players (${response.status}).`
+      apiPayload?.error ||
+      `Failed to load registered players (${response.status}).`
     );
   }
 
   const players = Array.isArray(payload)
     ? payload
     : Array.isArray(payload?.data)
-    ? payload.data
-    : [];
+      ? payload.data
+      : [];
 
   return players.map((player) => ({
     ...player,
@@ -127,89 +134,57 @@ async function getAllRegisteredPlayers(
     active: player.active !== false,
     transactions: Array.isArray(player.transactions)
       ? player.transactions.map((transaction) => ({
-          ...transaction,
-          direction: transaction.direction || "incoming",
-          category: transaction.category || "Other",
-          date: transaction.date || "",
-          amount: Number(transaction.amount) || 0,
-        }))
+        ...transaction,
+        direction: transaction.direction || "incoming",
+        category: transaction.category || "Other",
+        date: transaction.date || "",
+        amount: Number(transaction.amount) || 0,
+      }))
       : [],
   }));
 }
 
-export default function RegisteredPlayersView() {
+export default function RegisteredPlayersView({ updatedBy }: { updatedBy: string }) {
+  const [editDraft, setEditDraft] = useState<EditPlayerDraft | null>(null);
+  const [editError, setEditError] = useState("");
+  const [saving, setSaving] = useState(false);
   const [players, setPlayers] = useState<RegisteredPlayer[]>([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<
     "all" | "active" | "inactive"
   >("all");
   const [currentPage, setCurrentPage] = useState(1);
-  const [expandedPlayerIds, setExpandedPlayerIds] = useState<Set<string>>(
-    new Set()
-  );
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
+  const mountedRef = useRef(false);
+  const requestIdRef = useRef(0);
   const loadPlayers = useCallback(async (isRefresh = false) => {
-    const controller = new AbortController();
-
-    if (isRefresh) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-
+    const requestId = ++requestIdRef.current;
+    if (isRefresh) setRefreshing(true); else setLoading(true);
     setError("");
-
     try {
-      const registeredPlayers = await getAllRegisteredPlayers(
-        controller.signal
-      );
-      setPlayers(registeredPlayers);
+      const registeredPlayers = await getAllRegisteredPlayers();
+      if (mountedRef.current && requestId === requestIdRef.current) setPlayers(registeredPlayers);
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-
-      setError(
-        err instanceof Error ? err.message : "Failed to load registered players."
-      );
+      if (mountedRef.current && requestId === requestIdRef.current) setError(err instanceof Error ? err.message : "Failed to load registered players.");
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (mountedRef.current && requestId === requestIdRef.current) { setLoading(false); setRefreshing(false); }
     }
-
-    return () => controller.abort();
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
-
-    async function initialize() {
-      setLoading(true);
-      setError("");
-
-      try {
-        const registeredPlayers = await getAllRegisteredPlayers(
-          controller.signal
-        );
-        setPlayers(registeredPlayers);
-      } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return;
-
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to load registered players."
-        );
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    }
-
-    void initialize();
-
-    return () => controller.abort();
-  }, []);
+    mountedRef.current = true;
+    // React's development mount check cancels this timer before any request starts.
+    const timer = setTimeout(() => { void loadPlayers(); }, 0);
+    return () => {
+      clearTimeout(timer);
+      mountedRef.current = false;
+      requestIdRef.current += 1;
+    };
+  }, [loadPlayers]);
 
   const filteredPlayers = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -257,7 +232,7 @@ export default function RegisteredPlayersView() {
   const summary = useMemo(() => {
     return players.reduce(
       (result, player) => {
-        result.totalTransactions += player.transactions.length;
+        result.totalTransactions += player.totalTransactions ?? player.transactions.length;
 
         for (const transaction of player.transactions) {
           if (normalizeDirection(transaction.direction) === "outgoing") {
@@ -287,18 +262,26 @@ export default function RegisteredPlayersView() {
     setCurrentPage(1);
   }
 
-  function toggleExpanded(playerId: string) {
-    setExpandedPlayerIds((previous) => {
-      const next = new Set(previous);
+  function openEditor(player: RegisteredPlayer) {
+    const [firstName = "", ...rest] = player.name.trim().split(/\s+/);
+    setEditError("");
+    setEditDraft({ id: player.id, firstName, lastName: rest.join(" "), gamerNumber: player.gamerNumber, phone: player.phone, active: player.active });
+  }
 
-      if (next.has(playerId)) {
-        next.delete(playerId);
-      } else {
-        next.add(playerId);
-      }
-
-      return next;
-    });
+  async function savePlayer() {
+    if (!editDraft || saving) return;
+    if (!editDraft.firstName.trim() || !editDraft.lastName.trim() || !editDraft.gamerNumber.trim()) { setEditError("First name, last name and player number are required."); return; }
+    setSaving(true); setEditError("");
+    try {
+      await updatePlayerApi({ ...editDraft, firstName: editDraft.firstName.trim(), lastName: editDraft.lastName.trim(), gamerNumber: editDraft.gamerNumber.trim(), phone: editDraft.phone.trim(), updatedBy });
+      setPlayers(previous => previous.map(player => player.id === editDraft.id ? { ...player, name: `${editDraft.firstName.trim()} ${editDraft.lastName.trim()}`, gamerNumber: editDraft.gamerNumber.trim(), phone: editDraft.phone.trim(), active: editDraft.active } : player));
+      setEditDraft(null);
+      await loadPlayers(true);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Failed to update player");
+    } finally {
+      setSaving(false);
+    }
   }
 
   const firstVisible =
@@ -312,6 +295,7 @@ export default function RegisteredPlayersView() {
 
   return (
     <div className="h-full overflow-y-auto p-4 sm:p-5">
+      {editDraft && <EditPlayerModal playerDraft={editDraft} setPlayerDraft={setEditDraft} saving={saving} error={editError} setError={setEditError} onClose={() => { if (!saving) setEditDraft(null); }} onSubmit={savePlayer} />}
       <div className="mx-auto w-full space-y-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -352,7 +336,7 @@ export default function RegisteredPlayersView() {
           />
           <SummaryCard
             label="Total Volume"
-            value={formatCurrency(summary.cashIn + summary.cashOut)}
+            value={formatCurrency(players.map(player => (player.totalCashIn ?? 0) + (player.totalCashOut ?? 0)).reduce((sum, value) => sum + (value || 0), 0))}
           />
         </div>
 
@@ -383,11 +367,10 @@ export default function RegisteredPlayersView() {
                 key={status}
                 type="button"
                 onClick={() => handleStatusChange(status)}
-                className={`h-9 rounded-sm border px-3 text-xs font-medium capitalize transition-colors ${
-                  statusFilter === status
-                    ? "border-accent/40 bg-accent/15 text-accent"
-                    : "border-border bg-secondary text-muted-foreground hover:text-foreground"
-                }`}
+                className={`h-9 rounded-sm border px-3 text-xs font-medium capitalize transition-colors ${statusFilter === status
+                  ? "border-accent/40 bg-accent/15 text-accent"
+                  : "border-border bg-secondary text-muted-foreground hover:text-foreground"
+                  }`}
               >
                 {status}
               </button>
@@ -401,43 +384,65 @@ export default function RegisteredPlayersView() {
           </div>
         )}
 
-        <div className="overflow-hidden rounded border border-border bg-card">
+        <div className="overflow-x-auto rounded border border-border bg-card">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-245 text-sm">
-              <thead>
-                <tr className="border-b border-border bg-secondary/40">
-                  <th className="w-10 px-3 py-2.5" />
-                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">
+            <table role="table" data-mobile-stack
+              className="w-full lg:min-w-245 text-sm
+              max-lg:block max-lg:w-full max-lg:min-w-0! max-lg:max-w-full max-lg:table-auto
+              max-lg:[&>colgroup]:hidden
+              max-lg:[&>thead]:absolute max-lg:[&>thead]:size-px max-lg:[&>thead]:p-0
+              max-lg:[&>thead]:overflow-hidden max-lg:[&>thead]:[clip-path:inset(50%)] max-lg:[&>thead]:whitespace-nowrap
+              max-lg:[&>tbody]:block max-lg:[&>tbody]:w-full max-lg:[&>tfoot]:block max-lg:[&>tfoot]:w-full
+              max-lg:[&>tbody>tr]:flex max-lg:[&>tbody>tr]:flex-col max-lg:[&>tbody>tr]:w-full
+              max-lg:[&>tbody>tr]:p-2 max-lg:[&>tbody>tr]:border-b max-lg:[&>tbody>tr]:border-border max-lg:[&>tbody>tr]:mb-2
+              max-lg:[&>tfoot>tr]:flex max-lg:[&>tfoot>tr]:flex-col max-lg:[&>tfoot>tr]:w-full
+              max-lg:[&>tfoot>tr]:p-2 max-lg:[&>tfoot>tr]:border-b max-lg:[&>tfoot>tr]:border-border
+              max-lg:[&>tbody>tr>td]:grid max-lg:[&>tbody>tr>td]:grid-cols-1 max-lg:[&>tbody>tr>td]:items-start
+              max-lg:[&>tbody>tr>td]:gap-1 max-lg:[&>tbody>tr>td]:w-full max-lg:[&>tbody>tr>td]:min-w-0
+              max-lg:[&>tbody>tr>td]:p-2 max-lg:[&>tbody>tr>td]:text-left max-lg:[&>tbody>tr>td]:whitespace-normal max-lg:[&>tbody>tr>td]:wrap-anywhere
+              max-lg:[&>tfoot>tr>td]:grid max-lg:[&>tfoot>tr>td]:grid-cols-1 max-lg:[&>tfoot>tr>td]:items-start
+              max-lg:[&>tfoot>tr>td]:gap-1 max-lg:[&>tfoot>tr>td]:w-full max-lg:[&>tfoot>tr>td]:min-w-0
+              max-lg:[&>tfoot>tr>td]:p-2 max-lg:[&>tfoot>tr>td]:text-left max-lg:[&>tfoot>tr>td]:whitespace-normal max-lg:[&>tfoot>tr>td]:wrap-anywhere
+              max-lg:[&_td[data-label]:not([data-label=''])]:before:content-[attr(data-label)]
+              max-lg:[&_td[data-label]:not([data-label=''])]:before:text-muted-foreground
+              max-lg:[&_td[data-label]:not([data-label=''])]:before:text-[0.6875rem]
+              max-lg:[&_td[data-label]:not([data-label=''])]:before:font-medium max-lg:[&_td[data-label]:not([data-label=''])]:before:text-left
+              max-lg:[&>tbody>tr>td[colspan]]:block max-lg:[&>tfoot>tr>td[colspan]]:block
+              max-lg:[&>tbody>tr[data-transactions-row]]:p-0 max-lg:[&>tbody>tr[data-transactions-row]>td]:p-0">
+              <thead role="rowgroup">
+                <tr role="row" className="border-b border-border bg-secondary/40">
+                  <th role="columnheader" className="w-10 px-3 py-2.5 text-xs text-muted-foreground">Edit</th>
+                  <th role="columnheader" className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">
                     Player
                   </th>
-                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">
+                  <th role="columnheader" className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">
                     Phone
                   </th>
-                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">
+                  <th role="columnheader" className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">
                     Registered
                   </th>
-                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">
+                  <th role="columnheader" className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">
                     Created By
                   </th>
-                  <th className="px-3 py-2.5 text-center text-xs font-medium text-muted-foreground">
+                  <th role="columnheader" className="px-3 py-2.5 text-center text-xs font-medium text-muted-foreground">
                     Transactions
                   </th>
-                  <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
+                  <th role="columnheader" className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
                     Cash In
                   </th>
-                  <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
+                  <th role="columnheader" className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
                     Cash Out
                   </th>
-                  <th className="px-3 py-2.5 text-center text-xs font-medium text-muted-foreground">
+                  <th role="columnheader" className="px-3 py-2.5 text-center text-xs font-medium text-muted-foreground">
                     Status
                   </th>
                 </tr>
               </thead>
 
-              <tbody>
+              <tbody role="rowgroup">
                 {loading ? (
-                  <tr>
-                    <td colSpan={9} className="px-4 py-16 text-center">
+                  <tr role="row">
+                    <td role="cell" data-label="" colSpan={9} className="px-4 py-16 text-center">
                       <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
                         <Loader2 size={16} className="animate-spin text-accent" />
                         Loading registered players...
@@ -445,8 +450,8 @@ export default function RegisteredPlayersView() {
                     </td>
                   </tr>
                 ) : paginatedPlayers.length === 0 ? (
-                  <tr>
-                    <td
+                  <tr role="row">
+                    <td role="cell" data-label=""
                       colSpan={9}
                       className="px-4 py-16 text-center text-sm text-muted-foreground"
                     >
@@ -457,7 +462,7 @@ export default function RegisteredPlayersView() {
                   </tr>
                 ) : (
                   paginatedPlayers.map((player, index) => {
-                    const expanded = expandedPlayerIds.has(player.id);
+
                     const cashIn = player.transactions.reduce(
                       (total, transaction) =>
                         normalizeDirection(transaction.direction) === "incoming"
@@ -478,10 +483,9 @@ export default function RegisteredPlayersView() {
                         key={player.id}
                         player={player}
                         index={index}
-                        expanded={expanded}
                         cashIn={cashIn}
                         cashOut={cashOut}
-                        onToggle={() => toggleExpanded(player.id)}
+                        onEdit={() => openEditor(player)}
                       />
                     );
                   })
@@ -550,134 +554,123 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
 function PlayerRows({
   player,
   index,
-  expanded,
   cashIn,
   cashOut,
-  onToggle,
+  onEdit,
 }: {
   player: RegisteredPlayer;
   index: number;
-  expanded: boolean;
   cashIn: number;
   cashOut: number;
-  onToggle: () => void;
+  onEdit: () => void;
 }) {
   return (
     <>
       <tr
-        className={`border-b border-border ${
-          index % 2 === 1 ? "bg-secondary/15" : ""
-        }`}
+        role="row"
+        className={`border-b border-border ${index % 2 === 1 ? "bg-secondary/15" : ""}`}
       >
-        <td className="px-3 py-3 text-center">
-          <button
-            type="button"
-            onClick={onToggle}
-            disabled={player.transactions.length === 0}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground disabled:cursor-default disabled:opacity-30"
-            aria-label={expanded ? "Collapse transactions" : "Expand transactions"}
+        <td role="cell" data-label="Edit" className="px-3 py-3 text-center">
+          <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
+           max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
+           max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
+           max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal"
           >
-            {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          </button>
+            <button
+              type="button"
+              onClick={onEdit}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent/10 
+              hover:text-foreground disabled:cursor-default disabled:opacity-30"
+              aria-label={`Edit ${player.name}`}
+            >
+              <Pencil size={14} />
+            </button>
+          </div>
         </td>
 
-        <td className="px-3 py-3">
-          <p className="font-semibold text-foreground">{player.name}</p>
-          <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
-            {player.gamerNumber || "No player number"}
-          </p>
+        <td role="cell" data-label="Player" className="px-3 py-3">
+          <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
+           max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
+           max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
+           max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal"
+          >
+            <p className="font-semibold text-foreground">{player.name}</p>
+            <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+              {player.gamerNumber || "No player number"}
+            </p>
+          </div>
         </td>
 
-        <td className="px-3 py-3 text-muted-foreground">
-          {player.phone || "—"}
-        </td>
-        <td className="px-3 py-3 text-muted-foreground">
-          {formatDate(player.date)}
-        </td>
-        <td className="px-3 py-3 text-muted-foreground">
-          {player.createdBy || "—"}
-        </td>
-        <td className="px-3 py-3 text-center font-mono">
-          {player.transactions.length}
-        </td>
-        <td className="px-3 py-3 text-right font-mono text-emerald-400">
-          {formatCurrency(cashIn)}
-        </td>
-        <td className="px-3 py-3 text-right font-mono text-rose-400">
-          {formatCurrency(cashOut)}
-        </td>
-        <td className="px-3 py-3 text-center">
-          <span
-            className={`inline-flex rounded-sm border px-2 py-0.5 font-mono text-[11px] ${
-              player.active
-                ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-400"
-                : "border-border bg-secondary text-muted-foreground"
-            }`}
+        <td role="cell" data-label="Phone" className="px-3 py-3 text-muted-foreground">
+          <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
+            max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
+            max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
+            max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal"
           >
-            {player.active ? "ACTIVE" : "INACTIVE"}
-          </span>
+            {formatPhoneNumber(player.phone)}
+          </div></td>
+        <td role="cell" data-label="Registered" className="px-3 py-3 text-muted-foreground">
+          <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
+           max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
+           max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
+           max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal"
+          >
+            {formatDate(player.date)}
+          </div>
+        </td>
+        <td role="cell" data-label="Created by" className="px-3 py-3 text-muted-foreground">
+          <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
+           max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
+           max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
+           max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal">
+            {player.createdBy || "—"}
+          </div>
+        </td>
+        <td role="cell" data-label="Transactions" className="px-3 py-3 text-center font-mono">
+          <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
+            max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
+            max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
+            max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal">
+            {player?.totalTransactions}
+          </div>
+        </td>
+        <td role="cell" data-label="Cash In" className="px-3 py-3 text-right font-mono text-emerald-400">
+          <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
+            max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
+            max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
+            max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal">
+            {/* {formatCurrency(cashIn)} */}
+            {formatCurrency(player.totalCashIn ?? cashIn)}
+          </div>
+        </td>
+        <td role="cell" data-label="Cash Out" className="px-3 py-3 text-right font-mono text-rose-400">
+          <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
+           max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
+           max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
+           max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal">
+            {/* {formatCurrency(cashOut)} */}
+            {formatCurrency(player.totalCashOut ?? cashOut)}
+
+          </div>
+        </td>
+        <td role="cell" data-label="Status" className="px-3 py-3 text-center">
+          <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
+           max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
+           max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
+           max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal"
+          >
+            <span
+              className={`inline-flex rounded-sm border px-2 py-0.5 font-mono text-[11px] 
+                ${player.active
+                  ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-400"
+                  : "border-border bg-secondary text-muted-foreground"
+                }`}
+            >
+              {player.active ? "ACTIVE" : "INACTIVE"}
+            </span>
+          </div>
         </td>
       </tr>
-
-      {expanded && player.transactions.length > 0 && (
-        <tr className="border-b border-border bg-secondary/25">
-          <td colSpan={9} className="px-5 py-4">
-            <div className="overflow-hidden rounded-sm border border-border bg-background/50">
-              <table className="w-full min-w-175 text-xs">
-                <thead>
-                  <tr className="border-b border-border bg-secondary/50">
-                    <th className="px-3 py-2 text-left font-medium text-muted-foreground">
-                      Date
-                    </th>
-                    <th className="px-3 py-2 text-left font-medium text-muted-foreground">
-                      Direction
-                    </th>
-                    <th className="px-3 py-2 text-left font-medium text-muted-foreground">
-                      Category
-                    </th>
-                    <th className="px-3 py-2 text-right font-medium text-muted-foreground">
-                      Amount
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {player.transactions.map((transaction) => {
-                    const direction = normalizeDirection(transaction.direction);
-
-                    return (
-                      <tr
-                        key={transaction.id}
-                        className="border-b border-border last:border-0"
-                      >
-                        <td className="px-3 py-2.5 text-muted-foreground">
-                          {formatDate(transaction.date)}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <span
-                            className={`capitalize ${
-                              direction === "incoming"
-                                ? "text-emerald-400"
-                                : "text-rose-400"
-                            }`}
-                          >
-                            {direction === "incoming" ? "Cash In" : "Cash Out"}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2.5 text-foreground">
-                          {transaction.category}
-                        </td>
-                        <td className="px-3 py-2.5 text-right font-mono text-foreground">
-                          {formatCurrency(transaction.amount)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </td>
-        </tr>
-      )}
     </>
   );
 }

@@ -35,7 +35,7 @@ const SelectedTransactionModal = ({
   closeTransactionDetails: () => void;
 }) => {
   return (
-    <Modal>
+    <Modal onEscape={closeTransactionDetails}>
       <div className="flex items-center justify-between mb-5">
         <div>
           <h3 className="text-sm font-semibold">Transaction Log Details</h3>

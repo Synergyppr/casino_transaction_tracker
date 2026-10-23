@@ -42,10 +42,7 @@ const ManageTransactionModal = ({
 }) => {
   return (
     <Modal
-    // onClose={() => {
-    //   setTxnModal(null);
-    //   setTxnError("");
-    // }}
+      onEscape={() => { setTxnModal(null); setTxnError(""); }}
     >
       <div className="flex items-center justify-between mb-5">
         <div>
@@ -91,21 +88,20 @@ const ManageTransactionModal = ({
                 setTxnModal((prev) =>
                   prev
                     ? {
-                        ...prev,
-                        direction: dir,
-                        category:
-                          dir === "incoming" ? cashInCategory : cashOutCategory,
-                      }
+                      ...prev,
+                      direction: dir,
+                      category:
+                        dir === "incoming" ? cashInCategory : cashOutCategory,
+                    }
                     : prev
                 )
               }
-              className={`flex-1 h-9 rounded-sm text-sm flex items-center justify-center gap-2 transition-colors border ${
-                txnModal?.direction === dir
-                  ? dir === "incoming"
-                    ? "bg-sky-500/15 text-sky-400 border-sky-500/30"
-                    : "bg-rose-500/15 text-rose-400 border-rose-500/30"
-                  : "bg-secondary border-border text-muted-foreground hover:text-foreground"
-              }`}
+              className={`flex-1 h-9 rounded-sm text-sm flex items-center justify-center gap-2 transition-colors border ${txnModal?.direction === dir
+                ? dir === "incoming"
+                  ? "bg-sky-500/15 text-sky-400 border-sky-500/30"
+                  : "bg-rose-500/15 text-rose-400 border-rose-500/30"
+                : "bg-secondary border-border text-muted-foreground hover:text-foreground"
+                }`}
             >
               {dir === "incoming" ? (
                 <ArrowDownCircle size={13} />
@@ -188,11 +184,11 @@ const ManageTransactionModal = ({
               amountFocused
                 ? txnModal?.amount
                 : txnModal?.amount
-                ? Number(txnModal?.amount).toLocaleString("en-US", {
+                  ? Number(txnModal?.amount).toLocaleString("en-US", {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
                   })
-                : ""
+                  : ""
             }
             onFocus={(e) => {
               setAmountFocused(true);
@@ -211,9 +207,9 @@ const ManageTransactionModal = ({
               setTxnModal((prev) =>
                 prev
                   ? {
-                      ...prev,
-                      amount: Math.min(amount, 1000000).toFixed(2),
-                    }
+                    ...prev,
+                    amount: Math.min(amount, 1000000).toFixed(2),
+                  }
                   : prev
               );
             }}
@@ -251,9 +247,9 @@ const ManageTransactionModal = ({
               setTxnModal((prev) =>
                 prev
                   ? {
-                      ...prev,
-                      amount: value,
-                    }
+                    ...prev,
+                    amount: value,
+                  }
                   : prev
               );
 
@@ -289,17 +285,17 @@ const ManageTransactionModal = ({
               const status =
                 amount >= 1000000
                   ? {
-                      label: "COMPLIANCE REQ.",
-                      className:
-                        "text-emerald-400 border-emerald-500/30 bg-emerald-500/10",
-                    }
+                    label: "COMPLIANCE REQ.",
+                    className:
+                      "text-emerald-400 border-emerald-500/30 bg-emerald-500/10",
+                  }
                   : amount >= 7500
-                  ? {
+                    ? {
                       label: "APPROACHING",
                       className:
                         "text-amber-400 border-amber-500/30 bg-amber-500/10",
                     }
-                  : {
+                    : {
                       label: "NORMAL",
                       className: "text-foreground border-border bg-secondary",
                     };

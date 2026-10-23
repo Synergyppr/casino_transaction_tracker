@@ -1,5 +1,4 @@
 "use client";
-
 import { useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle, Loader2, X } from "lucide-react";
 import type { Player, AlertStatus } from "../lib/types";
@@ -8,7 +7,7 @@ import { getPlayerTotals, getStatus, fmt } from "../lib/utils";
 import { StatusBadge } from "./StatusBadge";
 import { AmtCell } from "./AmtCell";
 import { Modal } from "./Modal";
-import { createPlayerApi } from "../lib/api";
+import { createPlayerApi, mapApiPlayer } from "../lib/api";
 
 type PlayerDraft = {
   gamerNumber: string;
@@ -126,8 +125,7 @@ export function MonitoringView({
         createdBy,
       });
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setPlayers((prev: any[]) => [...prev, created]);
+      setPlayers((prev) => [...prev, mapApiPlayer(created)]);
       setDraft(EMPTY_PLAYER_DRAFT);
       setFormError("");
       setAddModal(false);
@@ -159,15 +157,14 @@ export function MonitoringView({
             <button
               key={t.key}
               onClick={() => setFilter(t.key)}
-              className={`px-3 py-1.5 rounded-sm text-xs font-medium transition-colors border flex items-center gap-1.5 cursor-pointer ${
-                filter === t.key
-                  ? t.key === "compliance"
-                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                    : t.key === "warning"
+              className={`px-3 py-1.5 rounded-sm text-xs font-medium transition-colors border flex items-center gap-1.5 cursor-pointer ${filter === t.key
+                ? t.key === "compliance"
+                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                  : t.key === "warning"
                     ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
                     : "bg-accent/15 text-accent border-accent/30"
-                  : "bg-secondary text-muted-foreground border-border hover:text-foreground"
-              }`}
+                : "bg-secondary text-muted-foreground border-border hover:text-foreground"
+                }`}
             >
               {t.label}
               <span className="font-mono">{counts[t.key]}</span>
@@ -185,34 +182,56 @@ export function MonitoringView({
       </div>
 
       <div className="bg-card border border-border rounded overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border bg-secondary/40">
-              <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">
+        <table role="table" data-mobile-stack
+        className="w-full lg:min-w-160 text-sm
+          max-lg:block max-lg:w-full max-lg:min-w-0! max-lg:max-w-full max-lg:table-auto
+          max-lg:[&>colgroup]:hidden
+          max-lg:[&>thead]:absolute max-lg:[&>thead]:size-px max-lg:[&>thead]:p-0
+          max-lg:[&>thead]:overflow-hidden max-lg:[&>thead]:[clip-path:inset(50%)] max-lg:[&>thead]:whitespace-nowrap
+          max-lg:[&>tbody]:block max-lg:[&>tbody]:w-full max-lg:[&>tfoot]:block max-lg:[&>tfoot]:w-full
+          max-lg:[&>tbody>tr]:flex max-lg:[&>tbody>tr]:flex-col max-lg:[&>tbody>tr]:w-full
+          max-lg:[&>tbody>tr]:p-2 max-lg:[&>tbody>tr]:border-b max-lg:[&>tbody>tr]:border-border max-lg:[&>tbody>tr]:mb-2
+          max-lg:[&>tfoot>tr]:flex max-lg:[&>tfoot>tr]:flex-col max-lg:[&>tfoot>tr]:w-full
+          max-lg:[&>tfoot>tr]:p-2 max-lg:[&>tfoot>tr]:border-b max-lg:[&>tfoot>tr]:border-border
+          max-lg:[&>tbody>tr>td]:grid max-lg:[&>tbody>tr>td]:grid-cols-1 max-lg:[&>tbody>tr>td]:items-start
+          max-lg:[&>tbody>tr>td]:gap-1 max-lg:[&>tbody>tr>td]:w-full max-lg:[&>tbody>tr>td]:min-w-0
+          max-lg:[&>tbody>tr>td]:p-2 max-lg:[&>tbody>tr>td]:text-left max-lg:[&>tbody>tr>td]:whitespace-normal max-lg:[&>tbody>tr>td]:wrap-anywhere
+          max-lg:[&>tfoot>tr>td]:grid max-lg:[&>tfoot>tr>td]:grid-cols-1 max-lg:[&>tfoot>tr>td]:items-start
+          max-lg:[&>tfoot>tr>td]:gap-1 max-lg:[&>tfoot>tr>td]:w-full max-lg:[&>tfoot>tr>td]:min-w-0
+          max-lg:[&>tfoot>tr>td]:p-2 max-lg:[&>tfoot>tr>td]:text-left max-lg:[&>tfoot>tr>td]:whitespace-normal max-lg:[&>tfoot>tr>td]:wrap-anywhere
+          max-lg:[&_td[data-label]:not([data-label=''])]:before:content-[attr(data-label)]
+          max-lg:[&_td[data-label]:not([data-label=''])]:before:text-muted-foreground
+          max-lg:[&_td[data-label]:not([data-label=''])]:before:text-[0.6875rem]
+          max-lg:[&_td[data-label]:not([data-label=''])]:before:font-medium max-lg:[&_td[data-label]:not([data-label=''])]:before:text-left
+          max-lg:[&>tbody>tr>td[colspan]]:block max-lg:[&>tfoot>tr>td[colspan]]:block
+          max-lg:[&>tbody>tr[data-transactions-row]]:p-0 max-lg:[&>tbody>tr[data-transactions-row]>td]:p-0">
+          <thead role="rowgroup">
+            <tr role="row" className="border-b border-border bg-secondary/40">
+              <th role="columnheader" className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">
                 Player
               </th>
-              <th className="text-right px-4 py-2.5 text-xs text-muted-foreground font-medium">
+              <th role="columnheader" className="text-right px-4 py-2.5 text-xs text-muted-foreground font-medium">
                 Cash In
               </th>
-              <th className="text-right px-4 py-2.5 text-xs text-muted-foreground font-medium">
+              <th role="columnheader" className="text-right px-4 py-2.5 text-xs text-muted-foreground font-medium">
                 Cash Out
               </th>
-              <th className="text-right px-4 py-2.5 text-xs text-muted-foreground font-medium">
+              <th role="columnheader" className="text-right px-4 py-2.5 text-xs text-muted-foreground font-medium">
                 Txns
               </th>
-              <th className="text-center px-4 py-2.5 text-xs text-muted-foreground font-medium">
+              <th role="columnheader" className="text-center px-4 py-2.5 text-xs text-muted-foreground font-medium">
                 Status
               </th>
-              <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">
+              <th role="columnheader" className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">
                 Required Action
               </th>
             </tr>
           </thead>
 
-          <tbody>
+          <tbody role="rowgroup">
             {displayed.length === 0 ? (
-              <tr>
-                <td
+              <tr role="row">
+                <td role="cell" data-label=""
                   colSpan={6}
                   className="px-4 py-10 text-center text-muted-foreground text-sm"
                 >
@@ -225,50 +244,93 @@ export function MonitoringView({
                 const status = getStatus(incoming, outgoing);
 
                 return (
-                  <tr
+                  <tr role="row"
                     key={p.id}
-                    className={`border-b border-border last:border-0 ${
-                      status === "compliance"
-                        ? "bg-emerald-500/5"
-                        : status === "warning"
+                    className={`border-b border-border last:border-0 ${status === "compliance"
+                      ? "bg-emerald-500/5"
+                      : status === "warning"
                         ? "bg-amber-500/5"
                         : i % 2 === 1
-                        ? "bg-secondary/20"
-                        : ""
-                    }`}
+                          ? "bg-secondary/20"
+                          : ""
+                      }`}
                   >
-                    <td className="px-4 py-3 font-semibold">{p.name}</td>
-
-                    <td className="px-4 py-3 text-right">
-                      <AmtCell amount={incoming} />
+                    <td
+                      role="cell"
+                      data-label="Player"
+                      className="px-4 py-3 font-semibold"
+                    >
+                      <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
+                      max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
+                      max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
+                      max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal">
+                        {p.name}
+                      </div>
                     </td>
-
-                    <td className="px-4 py-3 text-right">
-                      <AmtCell amount={outgoing} />
+                    <td
+                      role="cell"
+                      data-label="Cash In"
+                      className="px-4 py-3 text-right"
+                    >
+                      <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
+                      max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
+                      max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
+                      max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal">
+                        <AmtCell amount={incoming} />
+                      </div>
                     </td>
-
-                    <td className="px-4 py-3 text-right font-mono text-xs text-muted-foreground">
-                      {p.transactions?.length || 0}{" "}
+                    <td role="cell" data-label="Cash Out" className="px-4 py-3 text-right">
+                      <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
+                      max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
+                      max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
+                      max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal">
+                        <AmtCell amount={outgoing} />
+                      </div>
                     </td>
-
-                    <td className="px-4 py-3 text-center">
-                      <StatusBadge status={status} />
+                    <td
+                      role="cell"
+                      data-label="Transactions"
+                      className="px-4 py-3 text-right font-mono text-xs text-muted-foreground">
+                      <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
+                      max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
+                      max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
+                      max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal">
+                        {p.transactions?.length || 0}{" "}
+                      </div>
                     </td>
-
-                    <td className="px-4 py-3 text-xs">
-                      {status === "compliance" && (
-                        <span className="text-emerald-400">
-                          File compliance documentation
-                        </span>
-                      )}
-                      {status === "warning" && (
-                        <span className="text-amber-400">
-                          Prepare ID & documentation
-                        </span>
-                      )}
-                      {status === "normal" && (
-                        <span className="text-muted-foreground">—</span>
-                      )}
+                    <td
+                      role="cell"
+                      data-label="Status" className="px-4 py-3 text-center">
+                      <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
+                      max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
+                      max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
+                      max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal">
+                        <StatusBadge status={status} />
+                      </div>
+                    </td>
+                    <td
+                      role="cell"
+                      data-label="Created by"
+                      className="px-4 py-3 text-xs"
+                    >
+                      <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
+                      max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
+                      max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
+                      max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal">
+                        {status === "compliance" && (
+                          <span className="text-emerald-400">
+                            File compliance documentation
+                          </span>
+                        )}
+                        {status === "warning" && (
+                          <span className="text-amber-400">
+                            Prepare ID & documentation
+                          </span>
+                        )}
+                        {status === "normal" && (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );

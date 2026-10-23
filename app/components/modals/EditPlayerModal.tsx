@@ -53,7 +53,7 @@ export default function EditPlayerModal({
   }
 
   return (
-    <Modal>
+    <Modal onEscape={onClose}>
       <form
         onSubmit={handleSubmit}
         className="w-full max-w-xl overflow-hidden rounded-lg border border-border bg-card shadow-2xl"

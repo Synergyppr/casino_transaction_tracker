@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { getAllCashiers, getAllPlayersApi } from "../lib/api";
+import { getAllCashiers, getAllPlayersApi, mapApiTransaction } from "../lib/api";
 import type { Cashier, Player, ApiPlayer, Transaction } from "../lib/types";
 import { TODAY } from "../lib/constants";
 import {
@@ -10,6 +10,7 @@ import {
   Plus,
   Settings,
   UsersRound,
+  Building2,
 } from "lucide-react";
 import { View } from "../components/MainApp";
 import { getPlayerTotals, getStatus } from "../lib/utils";
@@ -17,7 +18,7 @@ import { DailyEntryView } from "../components/DailyEntryView";
 import Sidebar from "../components/Sidebar";
 
 const SESSION_KEY = "casino_session";
-const TIMEOUT_MS = 60 * 60 * 1000;
+const TIMEOUT_MS = 10 * 60 * 1000;
 
 function saveSession(cashier: Cashier) {
   try {
@@ -116,6 +117,9 @@ export default function Home() {
       case "admin":
         return "admin";
 
+      case "property-management":
+        return "properties";
+
       default:
         return "dashboard";
     }
@@ -207,16 +211,22 @@ export default function Home() {
     const builtPlayers: Player[] = [];
 
     for (const apiP of playerData) {
-      const pDate = apiP.date ? apiP.date.split("T")[0] : "";
-      const localTxns = sessionTxnsRef.current.get(apiP.id) || [];
+      const apiTxns = (apiP.transactions || []).map(mapApiTransaction);
+      const apiTxnIds = new Set(apiTxns.map((txn) => txn.id));
+      const localTxns = (sessionTxnsRef.current.get(apiP.id) || []).filter(
+        (txn) => !apiTxnIds.has(txn.id)
+      );
 
-      if (pDate === selectedDate || localTxns.length > 0) {
+      // Once returned by the endpoint, the server owns this transaction.
+      sessionTxnsRef.current.set(apiP.id, localTxns);
+
+      {
         builtPlayers.push({
           id: apiP.id,
           name: apiP.name || "Unknown",
           // date: selectedDate,
           date: apiP?.date,
-          transactions: localTxns,
+          transactions: [...apiTxns, ...localTxns],
           createdBy: apiP.createdBy || "",
           gamerNumber: apiP.gamerNumber,
         });
@@ -224,7 +234,7 @@ export default function Home() {
     }
 
     return { cashierData, playerData, builtPlayers };
-  }, [selectedDate]);
+  }, []);
 
   // Trigger a refresh
   const refreshData = useCallback(async () => {
@@ -269,7 +279,7 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, mounted, sessionChecked]);
 
-  const canAdmin = user?.role === "supervisor" || user?.role === "manager";
+  const canAdmin = user?.role === "manager";
   const canReports = user?.role === "manager" || user?.role === "supervisor";
 
   const navItems: { id: View; icon: React.ElementType; label: string }[] = [
@@ -280,14 +290,17 @@ export default function Home() {
       ? [{ id: "reports" as View, icon: BarChart2, label: "Reports" }]
       : []),
     ...(canAdmin
-      ? [{ id: "admin" as View, icon: Settings, label: "Administration" }]
+      ? [
+        { id: "admin" as View, icon: Settings, label: "Administration" },
+        { id: "properties" as View, icon: Building2, label: "Properties" },
+      ]
       : []),
   ];
 
   const monitoringPlayers = useMemo(
     () =>
       apiPlayers
-        .filter((p) => p.date?.split("T")[0] === selectedDate)
+
         .map((p) => ({
           id: p.id,
           name: p.name || "Unknown",
@@ -309,11 +322,12 @@ export default function Home() {
     [apiPlayers, selectedDate]
   );
 
-  const complianceCount = monitoringPlayers.filter((p) => {
-    const { incoming, outgoing } = getPlayerTotals(p);
+  const complianceCount = monitoringPlayers
+    .filter((p) => {
+      const { incoming, outgoing } = getPlayerTotals(p);
 
-    return getStatus(incoming, outgoing) === "compliance";
-  }).length;
+      return getStatus(incoming, outgoing) === "compliance";
+    }).length;
 
   function handleNav(item: {
     id: View;
@@ -326,6 +340,7 @@ export default function Home() {
       players: "/registered-players",
       reports: "/reports",
       admin: "/administration",
+      properties: "/property-management",
     };
 
     setSidebarOpen(false);
@@ -407,6 +422,10 @@ export default function Home() {
       />
 
       <main className="flex-1 h-screen flex flex-col min-w-0 overflow-hidden">
+        <header className="lg:hidden flex items-center gap-3 border-b border-border px-4 py-3 shrink-0">
+          <button aria-label="Open navigation" onClick={() => setSidebarOpen(true)} className="rounded border border-border px-3 py-2">☰</button>
+          <span className="text-sm font-semibold">Daily Entry</span>
+        </header>
         <DailyEntryView
           players={players}
           setPlayers={setPlayers}

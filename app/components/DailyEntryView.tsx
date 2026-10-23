@@ -1,13 +1,16 @@
 "use client";
-import { useState, useMemo } from "react";
+import { PageHeading } from "./PageHeading";
+import { Fragment, useState, useMemo, useRef } from "react";
 import {
   Search,
+  Plus,
+  List,
   UserPlus,
   X,
-  FileEditIcon,
   ChevronLeft,
   ChevronRight,
-  EyeIcon,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import type {
   Cashier,
@@ -24,17 +27,15 @@ import {
   updateTransactionApi,
   mapApiTransaction,
   getPlayerByGamerNumber,
-  updatePlayerApi,
+  searchPlayersByName,
+  mapApiPlayer,
 } from "../lib/api";
 import { StatusBadge } from "./StatusBadge";
 import { AmtCell } from "./AmtCell";
-import AllPlayerTransactionsModal from "./modals/AllPlayerTransactionsModal";
+import { PlayerTransactionsSection } from "./PlayerTransactionsSection";
 import ManageTransactionModal from "./modals/ManageTransactionModal";
 import DuplicatePlayerModal from "./modals/DuplicatePlayerModal";
 import AddPlayerModal from "./modals/AddPlayerModal";
-import EditPlayerModal, {
-  type EditPlayerDraft,
-} from "./modals/EditPlayerModal";
 
 const PLAYERS_PER_PAGE = 15;
 
@@ -89,6 +90,7 @@ function getDateOnly(value?: string) {
 
 function normalizeApiPlayerToPlayer(apiPlayer: ApiPlayer): Player {
   return {
+    ...mapApiPlayer(apiPlayer),
     id: apiPlayer.id,
     gamerNumber: apiPlayer.gamerNumber,
     name: apiPlayer.name || "Unknown",
@@ -118,7 +120,6 @@ export function DailyEntryView({
   apiPlayers,
   onDataChange,
   onTransactionCreated,
-  selectedDate,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   logout,
 }: {
@@ -139,10 +140,24 @@ export function DailyEntryView({
     gamerNumber: "",
     phone: "",
   });
+  const [nameQuery, setNameQuery] = useState("");
+  const [nameMatches, setNameMatches] = useState<ApiPlayer[]>([]);
+  const [nameSearched, setNameSearched] = useState(false);
+  const mutationPending = useRef(false);
+  const [lookedUpPlayer, setLookedUpPlayer] = useState<Player | null>(null);
+  const playerLookupRequest = useRef(0);
+  const playerLookupPending = useRef(false);
   const [playerError, setPlayerError] = useState("");
   const [dupModal, setDupModal] = useState<{ matches: Player[] } | null>(null);
   const [txnModal, setTxnModal] = useState<TxnDraft | null>(null);
-  const [listModal, setListModal] = useState<Player | null>(null);
+  const [expandedPlayers, setExpandedPlayers] = useState<Set<string>>(new Set());
+
+  const toggleTransactions = (id: string) => setExpandedPlayers(previous => {
+    const next = new Set(previous);
+    if (next.has(id)) next.delete(id);
+    else next.add(id); return next;
+  });
+
   const [txnError, setTxnError] = useState("");
   const [saving, setSaving] = useState(false);
   const [playerLookupLoading, setPlayerLookupLoading] = useState(false);
@@ -152,23 +167,28 @@ export function DailyEntryView({
   const [customCategory, setCustomCategory] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [amountFocused, setAmountFocused] = useState(false);
-  const [editPlayerModal, setEditPlayerModal] =
-    useState<EditPlayerDraft | null>(null);
-  const [editPlayerError, setEditPlayerError] = useState("");
 
   const visiblePlayers = useMemo(() => {
     const apiPlayersForDate = apiPlayers
-      .filter((p) => normalizeDate(p.date) === selectedDate)
+
       .map(normalizeApiPlayerToPlayer);
 
     const localOnlyPlayers = players.filter(
       (p) =>
-        normalizeDate(p.date) === selectedDate &&
+
         !apiPlayersForDate.some((apiP) => apiP.id === p.id)
     );
 
-    return [...apiPlayersForDate, ...localOnlyPlayers];
-  }, [apiPlayers, players, selectedDate]);
+    const mergedPlayers = apiPlayersForDate.map((apiPlayer) => {
+      const local = players.find((player) => player.id === apiPlayer.id);
+      if (!local) return apiPlayer;
+      const transactions = new Map(local.transactions.map((txn) => [txn.id, txn]));
+      apiPlayer.transactions.forEach((txn) => transactions.set(txn.id, txn));
+      return { ...apiPlayer, transactions: [...transactions.values()] };
+    });
+
+    return [...mergedPlayers, ...localOnlyPlayers];
+  }, [apiPlayers, players]);
 
   const todayPlayers = visiblePlayers;
 
@@ -177,19 +197,19 @@ export function DailyEntryView({
   const displayed = useMemo(() => {
     const filtered = normalizedSearch
       ? todayPlayers.filter((p) => {
-          const normalizedName = (p.name || "").toLowerCase();
-          const [firstName = "", ...lastNameParts] =
-            normalizedName.split(/\s+/);
-          const lastName = lastNameParts.join(" ");
-          const gamerNumber = String(p.gamerNumber || "").toLowerCase();
+        const normalizedName = (p.name || "").toLowerCase();
+        const [firstName = "", ...lastNameParts] =
+          normalizedName.split(/\s+/);
+        const lastName = lastNameParts.join(" ");
+        const gamerNumber = String(p.gamerNumber || "").toLowerCase();
 
-          return (
-            firstName.includes(normalizedSearch) ||
-            lastName.includes(normalizedSearch) ||
-            normalizedName.includes(normalizedSearch) ||
-            gamerNumber.includes(normalizedSearch)
-          );
-        })
+        return (
+          firstName.includes(normalizedSearch) ||
+          lastName.includes(normalizedSearch) ||
+          normalizedName.includes(normalizedSearch) ||
+          gamerNumber.includes(normalizedSearch)
+        );
+      })
       : todayPlayers;
 
     return [...filtered].sort((a, b) => {
@@ -267,166 +287,135 @@ export function DailyEntryView({
     };
   }
 
-  function openEditPlayer(player: Player) {
-    const apiPlayer = apiPlayers.find((item) => item.id === player.id);
-    const { firstName, lastName } = splitPlayerName(
-      apiPlayer?.name || player.name
-    );
-
-    const apiPlayerDetails = apiPlayer as
-      | (ApiPlayer & {
-          phone?: string | null;
-          active?: boolean;
-        })
-      | undefined;
-
-    setEditPlayerError("");
-    setEditPlayerModal({
-      id: player.id,
-      firstName,
-      lastName,
-      gamerNumber: apiPlayer?.gamerNumber || player.gamerNumber || "",
-      phone: apiPlayerDetails?.phone ? String(apiPlayerDetails.phone) : "",
-      active: apiPlayerDetails?.active ?? true,
-    });
-  }
-
-  function closeEditPlayer() {
-    if (saving) return;
-
-    setEditPlayerModal(null);
-    setEditPlayerError("");
-  }
-
-  async function submitPlayerUpdate() {
-    if (!editPlayerModal || saving) return;
-
-    const firstName = editPlayerModal.firstName.trim();
-    const lastName = editPlayerModal.lastName.trim();
-    const gamerNumber = editPlayerModal.gamerNumber.trim();
-    const phone = editPlayerModal.phone.trim();
-
-    if (!firstName) {
-      setEditPlayerError("First name is required.");
-      return;
-    }
-
-    if (!lastName) {
-      setEditPlayerError("Last name is required.");
-      return;
-    }
-
-    if (!gamerNumber) {
-      setEditPlayerError("Player number is required.");
-      return;
-    }
-
-    setSaving(true);
-    setEditPlayerError("");
-
-    try {
-      await updatePlayerApi({
-        id: editPlayerModal.id,
-        gamerNumber,
-        firstName,
-        lastName,
-        phone,
-        active: editPlayerModal.active,
-        updatedBy: user.name,
-      });
-
-      const updatedName = `${firstName} ${lastName}`.trim();
-
-      setPlayers((previousPlayers) =>
-        previousPlayers.map((player) =>
-          player.id === editPlayerModal.id
-            ? {
-                ...player,
-                name: updatedName,
-                gamerNumber,
-              }
-            : player
-        )
-      );
-
-      setListModal((currentPlayer) =>
-        currentPlayer?.id === editPlayerModal.id
-          ? {
-              ...currentPlayer,
-              name: updatedName,
-              gamerNumber,
-            }
-          : currentPlayer
-      );
-
-      setTxnModal((currentTransaction) =>
-        currentTransaction?.playerId === editPlayerModal.id
-          ? {
-              ...currentTransaction,
-              playerName: updatedName,
-            }
-          : currentTransaction
-      );
-
-      setEditPlayerModal(null);
-      await onDataChange();
-    } catch (error) {
-      setEditPlayerError(
-        error instanceof Error ? error.message : "Failed to update player"
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-
   async function handleGamerNumberLookup() {
     const gamerNumber = playerDraft.gamerNumber.trim();
 
-    if (!gamerNumber || playerLookupLoading || saving) return;
+    if (!gamerNumber || playerLookupPending.current || saving) return;
 
+    const requestId = ++playerLookupRequest.current;
+    playerLookupPending.current = true;
     setPlayerLookupLoading(true);
     setPlayerLookupMessage("");
     setPlayerError("");
+    setLookedUpPlayer(null);
 
     try {
       const response = await getPlayerByGamerNumber(gamerNumber);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const apiPlayer = (response as { data?: ApiPlayer } | ApiPlayer | any)
-        ?.data
-        ? (response as unknown as { data: ApiPlayer }).data
-        : (response as ApiPlayer);
 
-      if (!apiPlayer?.id) {
-        setPlayerLookupMessage("No player found for this Player ID.");
+      if (requestId !== playerLookupRequest.current) return;
+
+      if (!response?.id) {
+        setPlayerError("No player found for this player number.");
         return;
       }
 
-      const { firstName, lastName } = splitPlayerName(apiPlayer.name);
-
-      setPlayerDraft((prev) => ({
-        ...prev,
-        firstName: firstName || prev.firstName,
-        lastName: lastName || prev.lastName,
-        gamerNumber: apiPlayer.gamerNumber || prev.gamerNumber,
-        phone:
-          "phone" in apiPlayer && apiPlayer.phone
-            ? String(apiPlayer.phone)
-            : prev.phone,
-      }));
-
-      setPlayerLookupMessage("Player details loaded.");
+      selectLookupPlayer(response);
     } catch (err) {
+      if (requestId !== playerLookupRequest.current) return;
+
       setPlayerLookupMessage("");
       setPlayerError(
         err instanceof Error ? err.message : "Failed to load player details"
       );
     } finally {
-      setPlayerLookupLoading(false);
+      if (requestId === playerLookupRequest.current) {
+        playerLookupPending.current = false;
+        setPlayerLookupLoading(false);
+      }
     }
   }
 
+  function selectLookupPlayer(apiPlayer: ApiPlayer) {
+    const nameParts = splitPlayerName(apiPlayer.name);
+    const loaded = normalizeApiPlayerToPlayer(apiPlayer);
+    setLookedUpPlayer(loaded);
+    setPlayerDraft({
+      firstName: apiPlayer.firstName || nameParts.firstName,
+      lastName: apiPlayer.lastName || nameParts.lastName,
+      gamerNumber: apiPlayer.gamerNumber || "",
+      phone: apiPlayer.phone || "",
+    });
+    setNameMatches([]);
+    setNameSearched(false);
+    setPlayerError("");
+    setPlayerLookupMessage(
+      apiPlayer.active === false
+        ? "Inactive player selected. Register again before adding a transaction."
+        : "Player selected. Ready to add a transaction."
+    );
+  }
+
+  function changeNameQuery(value: string) {
+    playerLookupRequest.current += 1;
+    playerLookupPending.current = false;
+    setPlayerLookupLoading(false);
+    setNameQuery(value);
+    setNameMatches([]);
+    setNameSearched(false);
+    setPlayerError("");
+  }
+
+  async function handleNameLookup() {
+    if (!nameQuery.trim() || saving || playerLookupPending.current) return;
+    const requestId = ++playerLookupRequest.current;
+    playerLookupPending.current = true;
+    setPlayerLookupLoading(true);
+    setPlayerError("");
+    setNameMatches([]);
+    setNameSearched(false);
+    try {
+      const matches = await searchPlayersByName(nameQuery.trim());
+      if (requestId !== playerLookupRequest.current) return;
+      setNameMatches(matches);
+      setNameSearched(true);
+    } catch (err) {
+      if (requestId === playerLookupRequest.current) {
+        setPlayerError(err instanceof Error ? err.message : "Failed to search players");
+      }
+    } finally {
+      if (requestId === playerLookupRequest.current) {
+        playerLookupPending.current = false;
+        setPlayerLookupLoading(false);
+      }
+    }
+  }
+
+  async function continueWithExistingPlayer(player: Player) {
+    if (mutationPending.current) return;
+    if (player.active !== false) {
+      resetPlayerDraft();
+      openTxn(player);
+      return;
+    }
+    setAddModal(true);
+    const nameParts = splitPlayerName(player.name);
+    setLookedUpPlayer(player);
+    setPlayerDraft({
+      firstName: player.firstName || nameParts.firstName,
+      lastName: player.lastName || nameParts.lastName,
+      gamerNumber: player.gamerNumber || "",
+      phone: player.phone || "",
+    });
+    await createPlayer({
+      firstName: player.firstName || nameParts.firstName,
+      lastName: player.lastName || nameParts.lastName,
+      gamerNumber: player.gamerNumber || "",
+      phone: player.phone || "",
+    }, player);
+  }
+
   function handleAddPlayer() {
-    if (saving) return;
+    if (saving || playerLookupPending.current || playerLookupLoading) return;
+
+    const loadedPlayerMatchesDraft =
+      lookedUpPlayer !== null &&
+      String(lookedUpPlayer.gamerNumber || "").trim().toLowerCase() ===
+      playerDraft.gamerNumber.trim().toLowerCase();
+
+    if (lookedUpPlayer && loadedPlayerMatchesDraft) {
+      void continueWithExistingPlayer(lookedUpPlayer);
+      return;
+    }
 
     const firstName = playerDraft.firstName.trim();
     const lastName = playerDraft.lastName.trim();
@@ -434,7 +423,7 @@ export function DailyEntryView({
 
     const fullName = `${firstName} ${lastName}`.trim();
 
-    if (!fullName) {
+    if (!firstName || !lastName) {
       setPlayerError("First and last name are required.");
       return;
     }
@@ -447,106 +436,97 @@ export function DailyEntryView({
     // ─────────────────────────────────────────────────────────────
     const gamerNumberMatch = normalizedGamerNumber
       ? todayPlayers.find(
-          (player) =>
-            String(player.gamerNumber || "")
-              .trim()
-              .toLowerCase() === normalizedGamerNumber
-        )
+        (player) =>
+          String(player.gamerNumber || "")
+            .trim()
+            .toLowerCase() === normalizedGamerNumber
+      )
       : undefined;
 
     if (gamerNumberMatch) {
-      resetPlayerDraft();
-      openTxn(gamerNumberMatch);
+      void continueWithExistingPlayer(gamerNumberMatch);
       return;
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // 2. Exact name match
-    // ─────────────────────────────────────────────────────────────
-    const exactNameMatch = todayPlayers.find(
-      (player) =>
-        String(player.name || "")
-          .trim()
-          .toLowerCase() === normalizedFullName
-    );
-
-    if (exactNameMatch) {
-      resetPlayerDraft();
-      openTxn(exactNameMatch);
-      return;
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    // 3. Existing fuzzy-name duplicate detection
-    // ─────────────────────────────────────────────────────────────
-    const fuzzyNameMatch = todayPlayers.find((player) => {
-      const existingName = String(player.name || "")
-        .trim()
-        .toLowerCase();
-
-      if (!existingName) return false;
-
-      return (
+    // A name alone cannot identify a player; let the cashier choose.
+    const nameMatches = todayPlayers.filter((player) => {
+      const existingName = player.name.trim().toLowerCase();
+      return existingName === normalizedFullName ||
         existingName.includes(normalizedFullName.slice(0, 5)) ||
-        normalizedFullName.includes(existingName.slice(0, 5))
-      );
+        normalizedFullName.includes(existingName.slice(0, 5));
     });
 
-    if (fuzzyNameMatch) {
-      resetPlayerDraft();
-      openTxn(fuzzyNameMatch);
+    if (nameMatches.length > 0) {
+      setDupModal({ matches: nameMatches });
       return;
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // No existing player found → create a new one
-    // ─────────────────────────────────────────────────────────────
     createPlayer();
   }
 
-  async function createPlayer() {
+  async function createPlayer(draft: PlayerDraft = playerDraft, existing?: Player) {
+    if (mutationPending.current) return;
+    if (!draft.firstName.trim() || !draft.lastName.trim()) {
+      setPlayerError("First and last name are required.");
+      return;
+    }
+    mutationPending.current = true;
     setSaving(true);
 
     try {
-      const firstName = playerDraft.firstName.trim();
-      const lastName = playerDraft.lastName.trim();
+      const firstName = draft.firstName.trim();
+      const lastName = draft.lastName.trim();
       const gamerNumber =
-        playerDraft.gamerNumber.trim() ||
+        draft.gamerNumber.trim() ||
         `GMR-${Date.now().toString(36).toUpperCase()}`;
-      const phone = playerDraft.phone.trim() || undefined;
+      const phone = draft.phone.trim() || undefined;
 
-      const apiPlayer = await createPlayerApi({
+      const payload = {
         firstName,
         lastName,
         gamerNumber,
         phone,
-        createdBy: user.name,
-      });
+        createdBy: user.name || `${user.firstName} ${user.lastName}`.trim(),
+        race: existing?.race || "",
+        gender: existing?.gender || "",
+        age: existing?.age || "",
+        build: existing?.build || "",
+        description: existing?.description || "",
+        refused: existing?.refused ?? false,
+      }
+
+      const apiPlayer = await createPlayerApi(payload);
 
       const p: Player = {
-        id: apiPlayer.id,
+        ...normalizeApiPlayerToPlayer(apiPlayer),
         name: apiPlayer.name || `${firstName} ${lastName}`.trim(),
-        date: apiPlayer?.date,
-        transactions: [],
-        createdBy: user.name,
-        gamerNumber: apiPlayer.gamerNumber,
+        active: true,
       };
 
-      setPlayers((prev) => [...prev, p]);
+      setPlayers((prev) => [...prev.filter((player) => player.id !== p.id), p]);
+      mutationPending.current = false;
       resetPlayerDraft();
       setDupModal(null);
       openTxn(p);
-      onDataChange();
+      void onDataChange().catch((err) => console.error("Player refresh failed:", err));
     } catch (err) {
       setPlayerError(
         err instanceof Error ? err.message : "Failed to create player"
       );
     } finally {
+      mutationPending.current = false;
       setSaving(false);
     }
   }
 
   function resetPlayerDraft() {
+    if (mutationPending.current) return;
+    setNameQuery("");
+    setNameMatches([]);
+    setNameSearched(false);
+    playerLookupRequest.current += 1;
+    playerLookupPending.current = false;
+    setLookedUpPlayer(null);
     setPlayerDraft({
       firstName: "",
       lastName: "",
@@ -560,6 +540,11 @@ export function DailyEntryView({
   }
 
   function openTxn(p: Player, txn?: Transaction) {
+    if (!txn && p.active === false) {
+      void continueWithExistingPlayer(p);
+      return;
+    }
+    setCustomCategory("");
     const direction = txn?.direction || "incoming";
     const category =
       txn?.category ||
@@ -636,9 +621,9 @@ export function DailyEntryView({
   const validate = () => {
     if (!txnModal) return false;
 
-    const amt = parseFloat(txnModal.amount);
+    const amt = Number(txnModal.amount);
 
-    if (!amt || amt <= 0) {
+    if (!Number.isFinite(amt) || amt <= 0) {
       setTxnError("Enter a valid positive amount.");
       return false;
     }
@@ -680,8 +665,10 @@ export function DailyEntryView({
 
     if (!validate()) return;
 
-    const amt = Number.parseFloat(txnModal.amount);
+    const amt = Number(txnModal.amount);
 
+    if (mutationPending.current) return;
+    mutationPending.current = true;
     setSaving(true);
 
     try {
@@ -701,21 +688,21 @@ export function DailyEntryView({
           prev.map((p) =>
             p.id === txnModal.playerId
               ? {
-                  ...p,
-                  transactions: p.transactions.map((t) =>
-                    t.id === txnModal.id
-                      ? {
-                          ...t,
-                          direction: txnModal.direction,
-                          category: effectiveTxnCategory,
-                          amount: amt,
-                          ...({
-                            notes: txnModal.notes || "",
-                          } as Partial<Transaction>),
-                        }
-                      : t
-                  ),
-                }
+                ...p,
+                transactions: p.transactions.map((t) =>
+                  t.id === txnModal.id
+                    ? {
+                      ...t,
+                      direction: txnModal.direction,
+                      category: effectiveTxnCategory,
+                      amount: amt,
+                      ...({
+                        notes: txnModal.notes || "",
+                      } as Partial<Transaction>),
+                    }
+                    : t
+                ),
+              }
               : p
           )
         );
@@ -724,7 +711,10 @@ export function DailyEntryView({
           sessionStorage.getItem("casino_selected_property") || "null"
         )?.id;
 
+        if (!propertyId) throw new Error("Select a property before adding a transaction.");
+
         const payload = {
+          notes: txnModal.notes || "",
           playerId: txnModal.playerId,
           propertyId: propertyId,
           createdByCashierId: user.id,
@@ -733,11 +723,11 @@ export function DailyEntryView({
           amount: amt,
         };
 
-        // console.log("Creating API Transaction with payload:", payload);
+        console.log("Creating API Transaction with payload:", payload);
 
         const apiTxn = await createTransactionApi(payload);
 
-        // console.log("API Transaction Created:", apiTxn);
+        console.log("API Transaction Created:", apiTxn);
 
         const txn = mapApiTransaction(apiTxn);
 
@@ -760,16 +750,18 @@ export function DailyEntryView({
         err instanceof Error
           ? err.message
           : txnModal.mode === "update"
-          ? "Failed to update transaction"
-          : "Failed to record transaction"
+            ? "Failed to update transaction"
+            : "Failed to record transaction"
       );
     } finally {
+      mutationPending.current = false;
       setSaving(false);
     }
   }
 
   return (
-    <div className="p-5">
+    <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+      <PageHeading title="Daily Entry" subtitle="Register players and manage their cash-in and cash-out transactions." icon={UserPlus} />
       {/* Add player button */}
       <div className="mb-5 flex">
         <button
@@ -784,7 +776,7 @@ export function DailyEntryView({
       {/* Search + count */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-3">
         <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider">
-          Today&apos;s Players
+          All Players
           <span className="ml-2 text-foreground">{todayPlayers.length}</span>
         </p>
 
@@ -809,35 +801,58 @@ export function DailyEntryView({
 
       {/* Players table */}
       <div className="bg-card border border-border rounded overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border bg-secondary/40">
-              <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">
+        <table role="table" data-mobile-stack
+          className="w-full lg:min-w-160 text-sm
+          max-lg:block max-lg:w-full max-lg:min-w-0! max-lg:max-w-full max-lg:table-auto
+          max-lg:[&>colgroup]:hidden
+          max-lg:[&>thead]:absolute max-lg:[&>thead]:size-px max-lg:[&>thead]:p-0
+          max-lg:[&>thead]:overflow-hidden max-lg:[&>thead]:[clip-path:inset(50%)] max-lg:[&>thead]:whitespace-nowrap
+          max-lg:[&>tbody]:block max-lg:[&>tbody]:w-full max-lg:[&>tfoot]:block max-lg:[&>tfoot]:w-full
+          max-lg:[&>tbody>tr]:flex max-lg:[&>tbody>tr]:flex-col max-lg:[&>tbody>tr]:w-full
+          max-lg:[&>tbody>tr]:p-2 max-lg:[&>tbody>tr]:border-b max-lg:[&>tbody>tr]:border-border max-lg:[&>tbody>tr]:mb-2
+          max-lg:[&>tfoot>tr]:flex max-lg:[&>tfoot>tr]:flex-col max-lg:[&>tfoot>tr]:w-full
+          max-lg:[&>tfoot>tr]:p-2 max-lg:[&>tfoot>tr]:border-b max-lg:[&>tfoot>tr]:border-border
+          max-lg:[&>tbody>tr>td]:grid max-lg:[&>tbody>tr>td]:grid-cols-1 max-lg:[&>tbody>tr>td]:items-start
+          max-lg:[&>tbody>tr>td]:gap-1 max-lg:[&>tbody>tr>td]:w-full max-lg:[&>tbody>tr>td]:min-w-0
+          max-lg:[&>tbody>tr>td]:p-2 max-lg:[&>tbody>tr>td]:text-left max-lg:[&>tbody>tr>td]:whitespace-normal max-lg:[&>tbody>tr>td]:wrap-anywhere
+          max-lg:[&>tfoot>tr>td]:grid max-lg:[&>tfoot>tr>td]:grid-cols-1 max-lg:[&>tfoot>tr>td]:items-start
+          max-lg:[&>tfoot>tr>td]:gap-1 max-lg:[&>tfoot>tr>td]:w-full max-lg:[&>tfoot>tr>td]:min-w-0
+          max-lg:[&>tfoot>tr>td]:p-2 max-lg:[&>tfoot>tr>td]:text-left max-lg:[&>tfoot>tr>td]:whitespace-normal max-lg:[&>tfoot>tr>td]:wrap-anywhere
+          max-lg:[&_td[data-label]:not([data-label=''])]:before:content-[attr(data-label)]
+          max-lg:[&_td[data-label]:not([data-label=''])]:before:text-muted-foreground
+          max-lg:[&_td[data-label]:not([data-label=''])]:before:text-[0.6875rem]
+          max-lg:[&_td[data-label]:not([data-label=''])]:before:font-medium max-lg:[&_td[data-label]:not([data-label=''])]:before:text-left
+          max-lg:[&>tbody>tr>td[colspan]]:block max-lg:[&>tfoot>tr>td[colspan]]:block
+          max-lg:[&>tbody>tr[data-transactions-row]]:p-0 max-lg:[&>tbody>tr[data-transactions-row]>td]:p-0">
+          <thead role="rowgroup">
+            <tr role="row" className="border-b border-border bg-secondary/40">
+              <th role="columnheader" className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">
                 Player
               </th>
-              <th className="text-right px-4 py-2.5 text-xs text-muted-foreground font-medium">
+              <th role="columnheader" className="text-right px-4 py-2.5 text-xs text-muted-foreground font-medium">
                 Cash In
               </th>
-              <th className="text-right px-4 py-2.5 text-xs text-muted-foreground font-medium">
+              <th role="columnheader" className="text-right px-4 py-2.5 text-xs text-muted-foreground font-medium">
                 Cash Out
               </th>
-              <th className="text-center px-4 py-2.5 text-xs text-muted-foreground font-medium">
+              <th role="columnheader" className="text-center px-4 py-2.5 text-xs text-muted-foreground font-medium">
                 Status
               </th>
-              <th className="text-right px-4 py-2.5 text-xs text-muted-foreground font-medium"></th>
+              <th role="columnheader" className="text-right px-4 py-2.5 text-xs text-muted-foreground font-medium">
+              </th>
             </tr>
           </thead>
 
-          <tbody>
+          <tbody role="rowgroup">
             {displayed.length === 0 ? (
-              <tr>
-                <td
+              <tr role="row">
+                <td role="cell" data-label=""
                   colSpan={5}
                   className="px-4 py-10 text-center text-muted-foreground text-sm"
                 >
                   {search
                     ? "No matching players."
-                    : "No players for today. Register one above."}
+                    : "No players registered. Register one above."}
                 </td>
               </tr>
             ) : (
@@ -846,70 +861,92 @@ export function DailyEntryView({
                 const status = getStatus(incoming, outgoing);
 
                 return (
-                  <tr
-                    key={p.id}
-                    className={`border-b border-border last:border-0 ${
-                      status === "compliance"
+                  <Fragment key={p.id}>
+                    <tr role="row"
+                      className={`border-b border-border last:border-0 ${status === "compliance"
                         ? "bg-emerald-500/5"
                         : status === "warning"
-                        ? "bg-amber-500/5"
-                        : ((safeCurrentPage - 1) * PLAYERS_PER_PAGE + i) % 2 ===
-                          1
-                        ? "bg-secondary/20"
-                        : ""
-                    }`}
-                  >
-                    <td className="px-4 py-3">
-                      <p className="font-semibold">{p.name}</p>
-                      {p.gamerNumber && (
-                        <p className="text-[11px] text-muted-foreground font-mono mt-0.5">
-                          {p.gamerNumber}
-                        </p>
-                      )}
-                    </td>
+                          ? "bg-amber-500/5"
+                          : ((safeCurrentPage - 1) * PLAYERS_PER_PAGE + i) % 2 ===
+                            1
+                            ? "bg-secondary/20"
+                            : ""
+                        }`}
+                    >
+                      <td role="cell" data-label="Player" className="px-4 py-3">
+                        <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
+                      max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
+                      max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
+                      max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal">
+                          <p className="font-semibold">{p.name}</p>
+                          {p.gamerNumber && (
+                            <p className="text-[11px] text-muted-foreground font-mono mt-0.5">
+                              {p.gamerNumber}
+                            </p>
+                          )}
+                        </div>
+                      </td>
+                      <td role="cell" data-label="Cash In" className="px-4 py-3 text-right">
+                        <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
+                      max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
+                      max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
+                      max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal">
+                          <AmtCell amount={incoming} />
+                        </div>
+                      </td>
+                      <td role="cell" data-label="Cash Out" className="px-4 py-3 text-right">
+                        <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
+                      max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
+                      max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
+                      max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal">
+                          <AmtCell amount={outgoing} />
+                        </div>
+                      </td>
+                      <td role="cell" data-label="Status" className="px-4 py-3 text-center">
+                        <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
+                      max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
+                      max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
+                      max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal">
+                          <StatusBadge status={status} />
+                        </div>
+                      </td>
+                      <td role="cell" data-label="Actions" className="px-4 py-3 text-right">
+                        <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
+                      max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
+                      max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
+                      max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal">
+                          <div className="flex flex-wrap justify-end gap-2">
 
-                    <td className="px-4 py-3 text-right">
-                      <AmtCell amount={incoming} />
-                    </td>
+                            <button
+                              type="button"
+                              onClick={() => openTxn(p)}
+                              className="inline-flex items-center justify-center gap-1.5 px-3 py-1 text-xs bg-secondary hover:bg-accent/20 border border-border rounded-sm transition-colors text-foreground"
+                            >
+                              <Plus size={13} aria-hidden="true" /> Add Transaction
+                            </button>
 
-                    <td className="px-4 py-3 text-right">
-                      <AmtCell amount={outgoing} />
-                    </td>
-
-                    <td className="px-4 py-3 text-center">
-                      <StatusBadge status={status} />
-                    </td>
-
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex flex-wrap justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openEditPlayer(p)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1 text-xs bg-secondary hover:bg-accent/20 border border-border rounded-sm transition-colors text-foreground"
-                        >
-                          <FileEditIcon size={12} />
-                          Edit
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => openTxn(p)}
-                          className="px-3 py-1 text-xs bg-secondary hover:bg-accent/20 border border-border rounded-sm transition-colors text-foreground"
-                        >
-                          + Transaction
-                        </button>
-
-                        {p.transactions.length > 0 && (
-                          <button
-                            onClick={() => setListModal(p)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1 text-xs bg-secondary hover:bg-accent/20 border border-border rounded-sm transition-colors text-foreground"
-                          >
-                            <EyeIcon size={12} /> Transactions
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
+                            {p.transactions.length > 0 && (
+                              <button
+                                onClick={() => toggleTransactions(p.id)}
+                                aria-expanded={expandedPlayers.has(p.id)}
+                                aria-controls={`player-transactions-${p.id}`}
+                                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs bg-secondary hover:bg-accent/20 border border-border rounded-sm transition-colors text-foreground"
+                              >
+                                <List size={13} aria-hidden="true" /> View All Transactions
+                                {expandedPlayers.has(p.id) ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                    {expandedPlayers.has(p.id) &&
+                      <tr role="row" data-transactions-row><td role="cell" data-label="" colSpan={5}>
+                        <PlayerTransactionsSection player={p} openTxn={openTxn} />
+                      </td>
+                      </tr>
+                    }
+                  </Fragment>
                 );
               })
             )}
@@ -955,6 +992,13 @@ export function DailyEntryView({
       {/* Add player modal */}
       {addModal && (
         <AddPlayerModal
+          nameQuery={nameQuery}
+          onNameQueryChange={changeNameQuery}
+          onNameLookup={handleNameLookup}
+          nameMatches={nameMatches}
+          nameSearched={nameSearched}
+          onSelectPlayer={selectLookupPlayer}
+          selectedPlayer={lookedUpPlayer}
           playerDraft={playerDraft}
           setPlayerDraft={setPlayerDraft}
           resetPlayerDraft={resetPlayerDraft}
@@ -964,21 +1008,15 @@ export function DailyEntryView({
           setPlayerError={setPlayerError}
           handleGamerNumberLookup={handleGamerNumberLookup}
           playerLookupLoading={playerLookupLoading}
-          playerLookupMessage={playerLookupMessage}
+          playerLookupMessage={
+            playerLookupMessage === "Player details loaded." &&
+              (!lookedUpPlayer ||
+                String(lookedUpPlayer.gamerNumber || "").trim().toLowerCase() !==
+                playerDraft.gamerNumber.trim().toLowerCase())
+              ? ""
+              : playerLookupMessage
+          }
           setPlayerLookupMessage={setPlayerLookupMessage}
-        />
-      )}
-
-      {/* Edit player modal */}
-      {editPlayerModal && (
-        <EditPlayerModal
-          playerDraft={editPlayerModal}
-          setPlayerDraft={setEditPlayerModal}
-          saving={saving}
-          error={editPlayerError}
-          setError={setEditPlayerError}
-          onClose={closeEditPlayer}
-          onSubmit={submitPlayerUpdate}
         />
       )}
 
@@ -988,7 +1026,7 @@ export function DailyEntryView({
           dupModal={dupModal}
           setDupModal={setDupModal}
           openTxn={openTxn}
-          createPlayer={createPlayer}
+          createPlayer={() => void createPlayer()}
           resetPlayerDraft={resetPlayerDraft}
           saving={saving}
           fmt={fmt}
@@ -1017,15 +1055,6 @@ export function DailyEntryView({
         />
       )}
 
-      {/* List Modal */}
-      {listModal && (
-        <AllPlayerTransactionsModal
-          listModal={listModal}
-          setListModal={setListModal}
-          openTxn={openTxn}
-          fmt={fmt}
-        />
-      )}
     </div>
   );
 }

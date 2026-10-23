@@ -9,6 +9,7 @@ import {
   Settings,
   Loader2,
   UsersRound,
+  Building2,
 } from "lucide-react";
 import type { Cashier, Player, ApiPlayer, Transaction } from "../lib/types";
 import { TODAY } from "../lib/constants";
@@ -24,6 +25,7 @@ export type View =
   | "monitoring"
   | "reports"
   | "admin"
+  | "properties"
   | "audit";
 
 // Dashboard View
@@ -56,10 +58,9 @@ export function MainApp({
     const builtPlayers: Player[] = [];
 
     for (const apiP of playerData) {
-      const pDate = apiP.date ? apiP.date.split("T")[0] : "";
       const localTxns = sessionTxnsRef.current.get(apiP.id) || [];
 
-      if (pDate === selectedDate || localTxns.length > 0) {
+      {
         builtPlayers.push({
           id: apiP.id,
           name: apiP.name || "Unknown",
@@ -117,7 +118,7 @@ export function MainApp({
     };
   }, [fetchData]);
 
-  const canAdmin = user.role === "supervisor" || user.role === "manager";
+  const canAdmin = user.role === "manager";
   const canReports = user.role === "manager" || user.role === "supervisor";
 
   const navItems: { id: View; icon: React.ElementType; label: string }[] = [
@@ -128,14 +129,17 @@ export function MainApp({
       ? [{ id: "reports" as View, icon: BarChart2, label: "Reports" }]
       : []),
     ...(canAdmin
-      ? [{ id: "admin" as View, icon: Settings, label: "Administration" }]
+      ? [
+        { id: "admin" as View, icon: Settings, label: "Administration" },
+        { id: "properties" as View, icon: Building2, label: "Properties" },
+      ]
       : []),
   ];
 
   const monitoringPlayers = useMemo(
     () =>
       apiPlayers
-        .filter((p) => p.date?.split("T")[0] === selectedDate)
+
         .map((p) => ({
           id: p.id,
           name: p.name || "Unknown",
@@ -173,6 +177,7 @@ export function MainApp({
       players: "/registered-players",
       reports: "/reports",
       admin: "/administration",
+      properties: "/property-management",
     };
 
     setSidebarOpen(false);
@@ -220,42 +225,6 @@ export function MainApp({
 
       {/* Main */}
       <main className="flex-1 h-screen flex flex-col min-w-0 overflow-hidden">
-        {/* Header */}
-        <header className="h-12 border-b border-border flex items-center justify-between px-4 sm:px-5 shrink-0 bg-card/50">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="lg:hidden text-muted-foreground hover:text-foreground"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="3" y1="6" x2="21" y2="6" />
-                <line x1="3" y1="12" x2="21" y2="12" />
-                <line x1="3" y1="18" x2="21" y2="18" />
-              </svg>
-            </button>
-
-            <h2 className="text-sm font-semibold text-foreground">
-              {navItems.find((n) => n.id === "dashboard")?.label}
-            </h2>
-          </div>
-
-          <div className="flex items-center gap-5">
-            <div className="flex items-center gap-1.5 text-xs">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-emerald-400 font-medium">Live</span>
-            </div>
-          </div>
-        </header>
-
         {/* Error banner */}
         {error && (
           <div className="mx-5 mt-3 p-3 bg-destructive/10 border border-destructive/25 rounded text-xs text-destructive">
@@ -276,17 +245,6 @@ export function MainApp({
         <div className="flex-1 overflow-auto scrollbar-thin [scrollbar-color:var(--color-border)_transparent]">
           <DashboardView
             players={apiPlayers
-              .filter((p) => {
-                const [datePart] = p.date.split(" ");
-                const [month, day, year] = datePart.split("/");
-
-                const formattedDate = `${year}-${month.padStart(
-                  2,
-                  "0"
-                )}-${day.padStart(2, "0")}`;
-
-                return formattedDate === selectedDate;
-              })
               .map((p) => ({
                 id: p.id,
                 name: p.name || "Unknown",

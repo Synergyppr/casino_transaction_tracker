@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { Cashier } from "../lib/types";
 import { LoginScreen } from "../components/LoginScreen";
 import { getAllProperties } from "../lib/api";
+import type { Property } from "../lib/api";
 
 const SESSION_KEY = "casino_session";
-const TIMEOUT_MS = 60 * 60 * 1000;
+const TIMEOUT_MS = 10 * 60 * 1000;
 
 function saveSession(cashier: Cashier) {
   sessionStorage.setItem(
@@ -45,7 +46,7 @@ const Page = () => {
   const [mounted, setMounted] = useState(false);
   const [, setUser] = useState<Cashier | null>(null);
 
-  const [properties, setProperties] = useState<any[]>([]);
+  const [properties, setProperties] = useState<Property[]>([]);
   const [propertiesLoading, setPropertiesLoading] = useState(true);
   const [propertiesError, setPropertiesError] = useState("");
 
@@ -77,7 +78,6 @@ const Page = () => {
           controller.signal
         );
 
-        console.log("Fetched properties:", registeredProperties);
 
         setProperties(registeredProperties);
       } catch (err) {
@@ -118,7 +118,7 @@ const Page = () => {
 
       setUser(cashier);
 
-      router.push("/daily-entry");
+      router.replace("/daily-entry");
     },
     [router]
   );

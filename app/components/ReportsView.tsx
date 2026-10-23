@@ -1,4 +1,5 @@
 "use client";
+import { PageHeading } from "./PageHeading";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import {
@@ -490,7 +491,7 @@ export function ReportsView({
                     tx.direction === "outgoing"
                       ? ("outgoing" as const)
                       : ("incoming" as const),
-                  date: getDateOnly(tx.date || tx.createdAtUtc),
+                  date: tx.date || tx.createdAtUtc || "",
                   category: tx.category || "Other",
                   amount: Number(tx.amount) || 0,
                   cashierId: tx.createdByCashierId || "",
@@ -604,7 +605,7 @@ export function ReportsView({
             };
 
             const transactionDateTime =
-              transaction.createdAtUtc || transaction.date || p.date;
+              transaction.date || transaction.createdAtUtc || p.date;
 
             return {
               id: t.id,
@@ -906,36 +907,40 @@ export function ReportsView({
 
   return (
     <div className="p-5 space-y-5 overflow-auto">
+      <PageHeading title="Reports" subtitle="Explore transactions by date, filter results, and export your reports." icon={Calendar} />
       {/* Controls */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-        <div className="flex items-center gap-2">
-          <Calendar size={13} className="text-muted-foreground" />
-          <input
-            type="date"
-            value={startDate}
-            max={TODAY}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="h-9 px-3 bg-secondary border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
-          />
-          {loadingReport && (
-            <Loader2 size={14} className="animate-spin text-accent" />
-          )}
-        </div>
+        <div className="grid grid-cols-2 gap-2 w-full min-w-0 sm:w-auto">
+          <div className="flex items-center gap-1 min-w-0">
+            <Calendar size={13} className="hidden sm:block shrink-0 text-muted-foreground" />
+            <input
+              type="date"
+              value={startDate}
+              max={TODAY}
+              onChange={(e) => setStartDate(e.target.value)}
+              aria-label="Start date"
+              className="min-w-0 w-full h-9 px-1 sm:px-3 bg-secondary border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
+            />
+            {loadingReport && (
+              <Loader2 size={14} className="animate-spin text-accent" />
+            )}
+          </div>
 
-        <div className="flex items-center gap-2">
-          <Calendar size={13} className="text-muted-foreground" />
-          <input
-            type="date"
-            value={endDate}
-            max={TODAY}
-            onChange={(e) => setEndDate(e.target.value)}
-            className="h-9 px-3 bg-secondary border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
-          />
-          {loadingReport && (
-            <Loader2 size={14} className="animate-spin text-accent" />
-          )}
+          <div className="flex items-center gap-1 min-w-0">
+            <Calendar size={13} className="hidden sm:block shrink-0 text-muted-foreground" />
+            <input
+              type="date"
+              value={endDate}
+              max={TODAY}
+              onChange={(e) => setEndDate(e.target.value)}
+              aria-label="End date"
+              className="min-w-0 w-full h-9 px-1 sm:px-3 bg-secondary border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
+            />
+            {loadingReport && (
+              <Loader2 size={14} className="animate-spin text-accent" />
+            )}
+          </div>
         </div>
-
         <button
           onClick={() => exportTransactionsToCsv(transactionRows, selectedDate)}
           disabled={transactionRows.length === 0}

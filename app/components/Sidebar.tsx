@@ -1,6 +1,10 @@
 "use client";
+import { ConfirmLogout } from "./ConfirmLogout";
+import { SwitchProperty } from "./SwitchProperty";
+import { canAccessView } from "../lib/permissions";
+import { getSelectedProperty } from "../lib/propertyTheme";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Clock3, LogOut, Shield } from "lucide-react";
+import { AlertTriangle, Clock3, Shield } from "lucide-react";
 import { View } from "./MainApp";
 
 const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
@@ -30,6 +34,7 @@ const Sidebar = ({
   }[];
   complianceCount: number;
   user: {
+    id: string;
     name: string;
     role: string;
   };
@@ -189,6 +194,7 @@ const Sidebar = ({
       return;
     }
 
+    lastActivityRef.current = now;
     resetInactivityTimer();
   }, [resetInactivityTimer]);
 
@@ -264,9 +270,8 @@ const Sidebar = ({
   return (
     <>
       <aside
-        className={`fixed lg:sticky lg:top-0 z-50 top-0 left-0 h-screen lg:h-screen w-52 bg-[#0a0e18] border-r border-border flex flex-col shrink-0 transition-transform duration-200 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-        }`}
+        className={`fixed lg:sticky lg:top-0 z-50 top-0 left-0 h-screen lg:h-screen w-52 bg-[#0a0e18] border-r border-border flex flex-col shrink-0 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+          }`}
       >
         {/* HEADER */}
 
@@ -274,28 +279,27 @@ const Sidebar = ({
           <div className="flex items-center gap-2">
             <Shield size={14} className="text-accent shrink-0" />
 
-            <span className="text-sm font-semibold tracking-tight text-foreground">
+            <span className="text-sm font-semibold tracking-tight text-foreground wrap-break-word">
               Casino del Mar
             </span>
           </div>
 
           <p className="text-xs text-muted-foreground mt-0.5 font-mono">
-            Player Tracking
+            Satellite: {getSelectedProperty()?.name || "Not selected"}
           </p>
         </div>
 
         {/* NAVIGATION */}
 
         <nav className="flex-1 p-2.5 space-y-0.5 overflow-auto">
-          {navItems?.map((item) => (
+          {navItems?.filter((item) => canAccessView(user.role, item.id)).map((item) => (
             <button
               key={item.id}
               onClick={() => handleNav(item as never)}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-sm text-sm transition-colors cursor-pointer ${
-                activeView === item.id
-                  ? "bg-accent/15 text-accent font-medium"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-              }`}
+              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-sm text-sm transition-colors cursor-pointer ${activeView === item.id
+                ? "bg-accent/15 text-accent font-medium"
+                : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                }`}
             >
               <item.icon size={14} />
 
@@ -310,6 +314,7 @@ const Sidebar = ({
           ))}
         </nav>
 
+        <div className="px-2.5 pb-2"><SwitchProperty user={user} /></div>
         {/* USER */}
 
         <div className="p-2.5 border-t border-border">
@@ -321,26 +326,13 @@ const Sidebar = ({
             </p>
           </div>
 
-          <button
-            onClick={() => {
-              hasLoggedOutRef.current = true;
-
-              if (intervalRef.current) {
-                clearInterval(intervalRef.current);
-                intervalRef.current = null;
-              }
-
-              void Promise.resolve(logout()).catch((error) => {
-                console.error("[Logout] Failed to sign out:", error);
-
-                hasLoggedOutRef.current = false;
-              });
-            }}
-            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-sm text-sm text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-          >
-            <LogOut size={14} />
-            Sign Out
-          </button>
+          <ConfirmLogout onLogout={async () => {
+            hasLoggedOutRef.current = true;
+            try {
+              await logout();
+              if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+            } catch (error) { hasLoggedOutRef.current = false; throw error; }
+          }} />
         </div>
       </aside>
 
@@ -397,9 +389,8 @@ const Sidebar = ({
               <div
                 className="h-full bg-amber-400 transition-[width] duration-1000 ease-linear"
                 style={{
-                  width: `${
-                    ((secondsRemaining ?? 0) / WARNING_SECONDS) * 100
-                  }%`,
+                  width: `${((secondsRemaining ?? 0) / WARNING_SECONDS) * 100
+                    }%`,
                 }}
               />
             </div>
