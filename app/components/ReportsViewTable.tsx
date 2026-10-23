@@ -133,9 +133,11 @@ const ReportsViewTable = ({
             </span>
             <select
               value={categoryFilter}
+              disabled={directionFilter === "all"}
+              title={directionFilter === "all" ? "Select Cash In or Cash Out to filter by category" : undefined}
               onChange={(e) => setCategoryFilter(e.target.value)}
               aria-label="Filter transactions by category"
-              className="h-9 w-full rounded-sm border border-border bg-secondary px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60"
+              className="h-9 w-full rounded-sm border border-border bg-secondary px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <option value="all">All Categories</option>
               {categoryOptions.map((category) => (

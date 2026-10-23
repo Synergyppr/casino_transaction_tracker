@@ -932,7 +932,8 @@ export function DailyEntryView({
                                 aria-controls={`player-transactions-${p.id}`}
                                 className="inline-flex items-center gap-1.5 px-3 py-1 text-xs bg-secondary hover:bg-accent/20 border border-border rounded-sm transition-colors text-foreground"
                               >
-                                <List size={13} aria-hidden="true" /> View All Transactions
+                                <List size={13} aria-hidden="true" />
+                                {expandedPlayers.has(p.id) ? "Hide All Transactions" : "View All Transactions"}
                                 {expandedPlayers.has(p.id) ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                               </button>
                             )}
@@ -941,7 +942,7 @@ export function DailyEntryView({
                       </td>
                     </tr>
                     {expandedPlayers.has(p.id) &&
-                      <tr role="row" data-transactions-row><td role="cell" data-label="" colSpan={5}>
+                      <tr role="row" data-transactions-row className="bg-secondary/40"><td role="cell" data-label="" colSpan={5} className="p-0 border-b-2 border-border">
                         <PlayerTransactionsSection player={p} openTxn={openTxn} />
                       </td>
                       </tr>

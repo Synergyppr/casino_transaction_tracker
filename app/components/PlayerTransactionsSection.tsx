@@ -34,9 +34,12 @@ export function PlayerTransactionsSection({
     <section
       id={`player-transactions-${player.id}`}
       aria-label={`Transactions for ${player.name}`}
-      className="bg-secondary/20 p-3 sm:p-4"
+      className="m-3 rounded-lg border border-accent/30 border-l-4 border-l-accent bg-card p-3 shadow-sm sm:m-4 sm:p-4"
     >
-      <h3 className="mb-3 text-sm font-semibold">
+      <p className="mb-1 text-[11px] font-mono uppercase tracking-wider text-accent">
+        Player Transactions
+      </p>
+      <h3 className="mb-3 border-b border-accent/20 pb-3 text-sm font-semibold">
         {player.name} · {player.transactions.length} {player.transactions.length === 1 ? "transaction" : "transactions"}
       </h3>
       {error &&
@@ -47,7 +50,7 @@ export function PlayerTransactionsSection({
       {player.transactions.length === 0 ?
         <p className="text-sm text-muted-foreground">No transactions recorded.</p>
         : <table role="table" data-mobile-stack
-        className="w-full text-xs
+          className="w-full text-xs
           max-lg:block max-lg:w-full max-lg:min-w-0! max-lg:max-w-full max-lg:table-auto
           max-lg:[&>colgroup]:hidden
           max-lg:[&>thead]:absolute max-lg:[&>thead]:size-px max-lg:[&>thead]:p-0
