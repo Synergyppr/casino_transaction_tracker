@@ -44,6 +44,22 @@ async function post<T>(
   return res.json();
 }
 
+async function get<T>(
+  path: string,
+  signal?: AbortSignal
+): Promise<ApiResponse<T>> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "GET",
+    signal,
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`API ${res.status}: ${text || res.statusText}`);
+  }
+  return res.json();
+}
+
 // ─── Cashiers ──────────────────────────────────────────
 
 export async function loginCashier(
@@ -154,15 +170,13 @@ export async function getAllProperties(
     id: property.id,
     applicationId: property.applicationId,
     name: capitalizePropertyName(property.name) || "Unknown Property",
-    primaryColor: property.primaryColor,
-    secondaryColor: property.secondaryColor,
   }));
 }
 
 // ─── Players ───────────────────────────────────────────
 
 export async function getAllRegisteredPlayers(): Promise<Player[]> {
-  const res = await post<ApiPlayer[]>("/players/get-all-registered");
+  const res = await get<ApiPlayer[]>("/players/get-all-registered");
   if (res.status !== "200" || !res.data)
     throw new Error(res.message || "Failed to load records");
 
@@ -275,8 +289,7 @@ function mapCashier(api: ApiCashier): Cashier {
     lastName: api.lastName,
     name: [api.firstName, api.lastName].filter(Boolean).join(" ") || "Unknown",
     pin: "",
-    propertyIds:
-      api.propertyIds ?? api.properties?.map((property) => property.id),
+    propertyIds: api.propertyIds,
     role,
     active: api.active,
     employeeCode: api.employeeCode || undefined,
@@ -302,6 +315,8 @@ export function mapApiTransaction(api: ApiTransactionSummary): Transaction {
     referenceNumber: api.referenceNumber,
     date: api.date,
     notes: api.notes,
+    propertyId: api.propertyId,
+    propertyName: api.propertyName,
   };
 }
 

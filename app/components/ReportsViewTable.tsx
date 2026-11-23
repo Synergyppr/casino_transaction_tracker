@@ -39,6 +39,7 @@ const ReportsViewTable = ({
   setPageSize,
   loadingReport,
   openTransactionDetails,
+  showProperty = false,
 }: {
   transactionRows: TransactionRow[];
   filteredTransactionRows: TransactionRow[];
@@ -70,6 +71,7 @@ const ReportsViewTable = ({
   setPageSize: (size: number) => void;
   loadingReport?: boolean;
   openTransactionDetails: (transactionRowData: TransactionRow) => void;
+  showProperty?: boolean;
 }) => {
   const handleDirectionChange = (direction: DirectionFilter) => {
     setDirectionFilter(direction);
@@ -309,14 +311,26 @@ const ReportsViewTable = ({
           max-lg:[&_td[data-label]:not([data-label=''])]:before:font-medium max-lg:[&_td[data-label]:not([data-label=''])]:before:text-left
           max-lg:[&>tbody>tr>td[colspan]]:block max-lg:[&>tfoot>tr>td[colspan]]:block
           max-lg:[&>tbody>tr[data-transactions-row]]:p-0 max-lg:[&>tbody>tr[data-transactions-row]>td]:p-0">
-          <colgroup>
-            <col className="w-[18%]" />
-            <col className="w-[22%]" />
-            <col className="w-[9%]" />
-            <col className="w-[24%]" />
-            <col className="w-[12%]" />
-            <col className="w-[15%]" />
-          </colgroup>
+          {showProperty ? (
+            <colgroup>
+              <col className="w-[16%]" />
+              <col className="w-[18%]" />
+              <col className="w-[13%]" />
+              <col className="w-[8%]" />
+              <col className="w-[19%]" />
+              <col className="w-[11%]" />
+              <col className="w-[15%]" />
+            </colgroup>
+          ) : (
+            <colgroup>
+              <col className="w-[18%]" />
+              <col className="w-[22%]" />
+              <col className="w-[9%]" />
+              <col className="w-[24%]" />
+              <col className="w-[12%]" />
+              <col className="w-[15%]" />
+            </colgroup>
+          )}
 
           <thead role="rowgroup" className="max-lg:hidden">
             <tr role="row" className="border-b border-border bg-secondary/40">
@@ -340,6 +354,11 @@ const ReportsViewTable = ({
                   {renderSortIcon("player")}
                 </button>
               </th>
+              {showProperty && (
+                <th role="columnheader" className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">
+                  Property
+                </th>
+              )}
               <th role="columnheader" className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">
                 <button
                   type="button"
@@ -383,7 +402,7 @@ const ReportsViewTable = ({
             {sortedTransactionRows.length === 0 ? (
               <tr role="row">
                 <td role="cell" data-label=""
-                  colSpan={6}
+                  colSpan={showProperty ? 7 : 6}
                   className="px-4 py-10 text-center text-muted-foreground text-sm"
                 >
                   {loadingReport
@@ -422,6 +441,14 @@ const ReportsViewTable = ({
                       </p>
                     )}
                   </div></td>
+
+                  {showProperty && (
+                    <td role="cell" data-label="Property" className="px-4 py-3 overflow-hidden text-xs text-muted-foreground">
+                      <p className="truncate max-lg:whitespace-normal" title={t.propertyName || "—"}>
+                        {t.propertyName || "—"}
+                      </p>
+                    </td>
+                  )}
 
                   <td role="cell" data-label="Direction" className="px-4 py-3"><div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
                       max-lg:[&>.flex]:flex-wrap max-lg:[&>.flex]:justify-start max-lg:[&>.flex]:flex-col max-lg:[&>.flex]:items-stretch
@@ -479,7 +506,7 @@ const ReportsViewTable = ({
             <tfoot role="rowgroup">
               <tr role="row" className="border-t border-border bg-secondary/40">
                 <td role="cell" data-label=""
-                  colSpan={4}
+                  colSpan={showProperty ? 5 : 4}
                   className="px-4 py-2.5 text-xs font-semibold text-muted-foreground"
                 >
                   Totals

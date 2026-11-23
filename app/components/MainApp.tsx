@@ -257,7 +257,7 @@ export function MainApp({
                       : ("incoming" as const),
                   category: t.category || "Other",
                   amount: Number(t.amount) || 0,
-                  cashierId: t.createdBy || "",
+                  cashierId: t.createdByCashierId || "",
                   playerName: t.playerName || "Unknown",
                   cashierName: t.cashierName || "Unknown",
                 })),

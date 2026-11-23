@@ -20,11 +20,19 @@ import type {
   ApiPlayer,
 } from "../lib/types";
 import { CASH_IN_TYPES, CASH_OUT_TYPES, TODAY } from "../lib/constants";
-import { getPlayerTotals, getStatus, fmt } from "../lib/utils";
+import {
+  getPlayerTotals,
+  getStatus,
+  fmt,
+  canEditTransactionProperty,
+  PROPERTY_EDIT_DENIED_MESSAGE,
+} from "../lib/utils";
+import { getSelectedProperty } from "../lib/propertyTheme";
 import {
   createPlayerApi,
   createTransactionApi,
   updateTransactionApi,
+  getTransactionById,
   mapApiTransaction,
   getPlayerByGamerNumber,
   searchPlayersByName,
@@ -108,6 +116,8 @@ function normalizeApiPlayerToPlayer(apiPlayer: ApiPlayer): Player {
         date: t.date || "",
         cashierId: t.createdByCashierId || "",
         cashierName: t.cashierName,
+        propertyId: t.propertyId,
+        propertyName: t.propertyName,
       })) || [],
     createdBy: apiPlayer.createdBy || "",
   };
@@ -150,13 +160,12 @@ export function DailyEntryView({
   const [playerError, setPlayerError] = useState("");
   const [dupModal, setDupModal] = useState<{ matches: Player[] } | null>(null);
   const [txnModal, setTxnModal] = useState<TxnDraft | null>(null);
-  const [expandedPlayers, setExpandedPlayers] = useState<Set<string>>(new Set());
+  // Only one player's transaction list is open at a time (accordion behavior):
+  // opening another player closes the previously expanded one.
+  const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null);
 
-  const toggleTransactions = (id: string) => setExpandedPlayers(previous => {
-    const next = new Set(previous);
-    if (next.has(id)) next.delete(id);
-    else next.add(id); return next;
-  });
+  const toggleTransactions = (id: string) =>
+    setExpandedPlayerId(previous => (previous === id ? null : id));
 
   const [txnError, setTxnError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -540,6 +549,14 @@ export function DailyEntryView({
   }
 
   function openTxn(p: Player, txn?: Transaction) {
+    // Callers catch this and show it next to the edit button.
+    if (
+      txn &&
+      !canEditTransactionProperty(user, txn.propertyId, getSelectedProperty()?.id)
+    ) {
+      throw new Error(PROPERTY_EDIT_DENIED_MESSAGE);
+    }
+
     if (!txn && p.active === false) {
       void continueWithExistingPlayer(p);
       return;
@@ -673,9 +690,17 @@ export function DailyEntryView({
 
     try {
       if (txnModal.mode === "update" && txnModal.id) {
+        // Re-check against the server copy right before writing.
+        const sessionPropertyId = getSelectedProperty()?.id;
+        const current = await getTransactionById(txnModal.id);
+        if (!canEditTransactionProperty(user, current.propertyId, sessionPropertyId)) {
+          throw new Error(PROPERTY_EDIT_DENIED_MESSAGE);
+        }
+
         await updateTransactionApi({
           id: txnModal.id,
           updatedByCashierId: user.id,
+          propertyId: sessionPropertyId,
           direction: txnModal.direction,
           category: effectiveTxnCategory,
           amount: amt,
@@ -707,9 +732,8 @@ export function DailyEntryView({
           )
         );
       } else {
-        const propertyId = JSON.parse(
-          sessionStorage.getItem("casino_selected_property") || "null"
-        )?.id;
+        const selectedProperty = getSelectedProperty();
+        const propertyId = selectedProperty?.id;
 
         if (!propertyId) throw new Error("Select a property before adding a transaction.");
 
@@ -723,13 +747,23 @@ export function DailyEntryView({
           amount: amt,
         };
 
-        console.log("Creating API Transaction with payload:", payload);
+        console.log("[CreateTransaction] POST /transactions/create body:", JSON.stringify(payload, null, 2));
+        console.log("[CreateTransaction] selected property (session):", selectedProperty);
 
         const apiTxn = await createTransactionApi(payload);
 
-        console.log("API Transaction Created:", apiTxn);
+        console.log("[CreateTransaction] API response:", apiTxn);
+        if (apiTxn.propertyId && apiTxn.propertyId !== propertyId) {
+          console.warn("[CreateTransaction] propertyId mismatch — sent:", propertyId, "received:", apiTxn.propertyId);
+        }
 
-        const txn = mapApiTransaction(apiTxn);
+        const mapped = mapApiTransaction(apiTxn);
+        // Fall back to the session property if the API response omits it.
+        const txn = {
+          ...mapped,
+          propertyId: mapped.propertyId || propertyId,
+          propertyName: mapped.propertyName || selectedProperty?.name,
+        };
 
         onTransactionCreated(txnModal.playerId, txn);
 
@@ -928,22 +962,31 @@ export function DailyEntryView({
                             {p.transactions.length > 0 && (
                               <button
                                 onClick={() => toggleTransactions(p.id)}
-                                aria-expanded={expandedPlayers.has(p.id)}
+                                aria-expanded={expandedPlayerId === p.id}
                                 aria-controls={`player-transactions-${p.id}`}
                                 className="inline-flex items-center gap-1.5 px-3 py-1 text-xs bg-secondary hover:bg-accent/20 border border-border rounded-sm transition-colors text-foreground"
                               >
                                 <List size={13} aria-hidden="true" />
-                                {expandedPlayers.has(p.id) ? "Hide All Transactions" : "View All Transactions"}
-                                {expandedPlayers.has(p.id) ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                {expandedPlayerId === p.id ? "Hide All Transactions" : "View All Transactions"}
+                                {expandedPlayerId === p.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                               </button>
                             )}
                           </div>
                         </div>
                       </td>
                     </tr>
-                    {expandedPlayers.has(p.id) &&
+                    {expandedPlayerId === p.id &&
                       <tr role="row" data-transactions-row className="bg-secondary/40"><td role="cell" data-label="" colSpan={5} className="p-0 border-b-2 border-border">
-                        <PlayerTransactionsSection player={p} openTxn={openTxn} />
+                        <PlayerTransactionsSection
+                          player={p}
+                          openTxn={openTxn}
+                          canEdit={(t) =>
+                            // Only pre-disable when the property is known; openTxn/submitTxn
+                            // still fail closed against the server copy.
+                            !t.propertyId ||
+                            canEditTransactionProperty(user, t.propertyId, getSelectedProperty()?.id)
+                          }
+                        />
                       </td>
                       </tr>
                     }

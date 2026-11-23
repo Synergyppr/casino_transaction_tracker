@@ -9,9 +9,15 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  Building2,
 } from "lucide-react";
 
-import type { Player, ApiPlayer } from "../lib/types";
+import type {
+  Player,
+  ApiPlayer,
+  ApiPropertyBreakdown,
+  Logs,
+} from "../lib/types";
 import {
   COMPLIANCE_THRESHOLD,
   TODAY,
@@ -25,16 +31,7 @@ import type { ReportData } from "../reports/page";
 import SelectedTransactionModal from "./modals/SelectedTransactionModal";
 import ReportsViewTable from "./ReportsViewTable";
 
-export type TransactionLog = {
-  id: string;
-  transactionId: string;
-  action: string;
-  oldValuesJson: unknown;
-  newValuesJson: unknown;
-  reason: string;
-  changedByCashierId: string;
-  createdAtUtc: string;
-};
+export type TransactionLog = Logs;
 
 export type TransactionRow = {
   id: string;
@@ -47,6 +44,9 @@ export type TransactionRow = {
   playerId: string;
   playerName: string;
   gamerNumber?: string;
+  propertyId?: string;
+  propertyName?: string;
+  transactionLogs?: TransactionLog[];
   date: string;
   time: string;
 };
@@ -61,150 +61,20 @@ export type SortDirection = "asc" | "desc";
 export type DirectionFilter = "all" | "incoming" | "outgoing";
 export type AlertFilter = "all" | "normal" | "warning" | "compliance";
 
-type ParsedLogValues = {
-  direction?: "incoming" | "outgoing";
-  amount?: number;
-  category?: string;
-  status?: string;
-  [key: string]: unknown;
-};
-
-function safeParseJson(value: unknown): ParsedLogValues {
-  if (value === null || value === undefined || value === "") return {};
-
-  if (typeof value === "object" && !Array.isArray(value)) {
-    return value as ParsedLogValues;
-  }
-
-  try {
-    const parsed = JSON.parse(String(value));
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as ParsedLogValues)
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-function normalizeJsonValue(value: unknown): unknown {
-  if (value instanceof Date) return value.toISOString();
-
-  if (Array.isArray(value)) return value.map(normalizeJsonValue);
-
-  if (value && typeof value === "object") {
-    return Object.keys(value as Record<string, unknown>)
-      .sort()
-      .reduce<Record<string, unknown>>((acc, key) => {
-        acc[key] = normalizeJsonValue((value as Record<string, unknown>)[key]);
-        return acc;
-      }, {});
-  }
-
-  return value;
-}
-
-function areJsonValuesEqual(oldValue: unknown, newValue: unknown) {
-  return (
-    JSON.stringify(normalizeJsonValue(oldValue)) ===
-    JSON.stringify(normalizeJsonValue(newValue))
-  );
-}
-
-export function getChangedLogValues(
-  oldValuesJson: unknown,
-  newValuesJson: unknown
-) {
-  const oldValues = safeParseJson(oldValuesJson);
-  const newValues = safeParseJson(newValuesJson);
-  const keys = Array.from(
-    new Set([...Object.keys(oldValues), ...Object.keys(newValues)])
-  );
-
-  return keys.reduce(
-    (acc, key) => {
-      if (!areJsonValuesEqual(oldValues[key], newValues[key])) {
-        if (Object.prototype.hasOwnProperty.call(oldValues, key)) {
-          acc.oldValues[key] = oldValues[key];
-        }
-
-        if (Object.prototype.hasOwnProperty.call(newValues, key)) {
-          acc.newValues[key] = newValues[key];
-        }
-      }
-
-      return acc;
-    },
-    {
-      oldValues: {} as ParsedLogValues,
-      newValues: {} as ParsedLogValues,
-    }
-  );
-}
-
-const LOG_FIELD_LABELS: Record<string, string> = {
-  direction: "Direction",
-  amount: "Amount",
-  category: "Category",
-  status: "Status",
-  date: "Date",
-  time: "Time",
-  playerId: "Player",
-  cashierId: "Cashier",
-  createdByCashierId: "Created By",
-  updatedByCashierId: "Updated By",
-};
-
-function formatLogFieldName(key: string) {
-  if (LOG_FIELD_LABELS[key]) return LOG_FIELD_LABELS[key];
-
-  return key
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/[_-]+/g, " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
-}
-
-export function formatLogValue(key: string, value: unknown): string {
+/** Formats an attribute value from the logs endpoint for display. */
+export function formatLogValue(attribute: string, value: string | null): string {
   if (value === null || value === undefined || value === "") return "Empty";
 
-  if (key === "amount") {
+  if (attribute.toLowerCase() === "amount") {
     const amount = Number(value);
-    return Number.isFinite(amount) ? fmt(amount) : String(value);
+    return Number.isFinite(amount) ? fmt(amount) : value;
   }
 
-  if (key === "direction") {
-    if (value === "incoming") return "Cash In";
-    if (value === "outgoing") return "Cash Out";
-  }
+  if (value === "incoming") return "Cash In";
+  if (value === "outgoing") return "Cash Out";
 
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-
-  if (Array.isArray(value)) {
-    return value.length > 0
-      ? value.map((item) => String(item)).join(", ")
-      : "Empty";
-  }
-
-  if (typeof value === "object") return JSON.stringify(value, null, 2);
-
-  return String(value);
-}
-
-export function getChangedFieldRows(
-  oldValues: ParsedLogValues,
-  newValues: ParsedLogValues
-) {
-  const keys = Array.from(
-    new Set([...Object.keys(oldValues), ...Object.keys(newValues)])
-  );
-
-  return keys.map((key) => ({
-    key,
-    label: formatLogFieldName(key),
-    oldValue: oldValues[key],
-    newValue: newValues[key],
-    hasOldValue: Object.prototype.hasOwnProperty.call(oldValues, key),
-    hasNewValue: Object.prototype.hasOwnProperty.call(newValues, key),
-  }));
+  // "Creation Details" packs several facts separated by " | "
+  return value.split(" | ").join("\n");
 }
 
 function normalizeTransactionLogsResponse(response: unknown): TransactionLog[] {
@@ -395,6 +265,7 @@ export function ReportsView({
   report,
   setReport,
   cashiers,
+  canViewAllProperties = false,
 }: {
   selectedDate: string;
   startDate: string;
@@ -404,8 +275,14 @@ export function ReportsView({
   report?: ReportData;
   setReport: Dispatch<SetStateAction<ReportData | undefined>>;
   cashiers?: { id: string; name: string }[];
+  canViewAllProperties?: boolean;
 }) {
+  const [allProperties, setAllProperties] = useState(false);
+  const showAllProperties = canViewAllProperties && allProperties;
   const [transactionLogs, setTransactionLogs] = useState<TransactionLog[]>([]);
+  const [propertyBreakdown, setPropertyBreakdown] = useState<
+    ApiPropertyBreakdown[]
+  >([]);
   const [selectedTransaction, setSelectedTransaction] =
     useState<TransactionRow | null>(null);
   const [loadingTransactionLogs, setLoadingTransactionLogs] = useState(false);
@@ -432,7 +309,7 @@ export function ReportsView({
       )?.id;
 
       const payload = {
-        propertyId: propertyId,
+        propertyId: showAllProperties ? undefined : propertyId,
         startDateTime: `${startDate}T00:00:00`,
         endDateTime: `${endDate}T23:59:59.999`,
       };
@@ -441,6 +318,7 @@ export function ReportsView({
 
       // console.log("Fetched report:", report);
       setReport(report as unknown as ReportData);
+      setPropertyBreakdown(report?.propertyBreakdown ?? []);
 
       const playerDetail = Array.isArray(report?.playerDetail)
         ? report.playerDetail
@@ -483,6 +361,9 @@ export function ReportsView({
                   createdAtUtc?: string;
                   createdByCashierId?: string;
                   cashierName?: string;
+                  propertyId?: string;
+                  propertyName?: string;
+                  transactionLogs?: TransactionLog[];
                 };
 
                 return {
@@ -496,6 +377,9 @@ export function ReportsView({
                   amount: Number(tx.amount) || 0,
                   cashierId: tx.createdByCashierId || "",
                   cashierName: tx.cashierName,
+                  propertyId: tx.propertyId,
+                  propertyName: tx.propertyName,
+                  transactionLogs: tx.transactionLogs,
                 };
               }) || [],
             createdBy: "",
@@ -513,7 +397,7 @@ export function ReportsView({
       setLoadingReport(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startDate, endDate]);
+  }, [startDate, endDate, showAllProperties]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -524,8 +408,11 @@ export function ReportsView({
   }, [fetchReport]);
 
   function openTransactionDetails(transaction: TransactionRow) {
-    setTransactionLogs([]);
-    setLoadingTransactionLogs(true);
+    // The report now embeds each transaction's logs; only hit the logs
+    // endpoint when they're missing.
+    const embeddedLogs = transaction.transactionLogs;
+    setTransactionLogs(embeddedLogs ?? []);
+    setLoadingTransactionLogs(!embeddedLogs);
     setSelectedTransaction(transaction);
   }
 
@@ -537,7 +424,7 @@ export function ReportsView({
 
   // Now fetch the transaction logs by transaction ID
   useEffect(() => {
-    if (!selectedTransaction) return;
+    if (!selectedTransaction || selectedTransaction.transactionLogs) return;
 
     let cancelled = false;
 
@@ -617,6 +504,9 @@ export function ReportsView({
               playerId: p.id,
               playerName: p.name,
               gamerNumber: p.gamerNumber,
+              propertyId: t.propertyId,
+              propertyName: t.propertyName,
+              transactionLogs: t.transactionLogs,
               date: getDateOnly(
                 transaction.date || transactionDateTime || p.date
               ),
@@ -712,6 +602,7 @@ export function ReportsView({
           formatDateOnly(transaction.date),
           transaction.time,
           transaction.cashierName,
+          transaction.propertyName,
           transactionAlertStatus,
         ].some((value) =>
           String(value ?? "")
@@ -860,16 +751,9 @@ export function ReportsView({
   const selectedTransactionLogs = useMemo(() => {
     if (!selectedTransaction) return [];
 
-    const matchingLogs = (transactionLogs as TransactionLog[])
-      .filter(
-        (log) =>
-          !log.transactionId || log.transactionId === selectedTransaction.id
-      )
-      .map((log) => ({
-        ...log,
-        transactionId: log.transactionId || selectedTransaction.id,
-      }))
-      .sort((a, b) => b.createdAtUtc.localeCompare(a.createdAtUtc));
+    const matchingLogs = [...transactionLogs].sort((a, b) =>
+      (b.changedAtUtc ?? "").localeCompare(a.changedAtUtc ?? "")
+    );
 
     return matchingLogs;
   }, [selectedTransaction, transactionLogs]);
@@ -942,7 +826,9 @@ export function ReportsView({
           </div>
         </div>
         <button
-          onClick={() => exportTransactionsToCsv(transactionRows, selectedDate)}
+          onClick={() =>
+            exportTransactionsToCsv(transactionRows, selectedDate, showAllProperties)
+          }
           disabled={transactionRows.length === 0}
           className="flex items-center gap-2 px-4 h-9 bg-secondary border border-border rounded-sm text-sm text-muted-foreground hover:text-foreground 
           transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
@@ -950,6 +836,21 @@ export function ReportsView({
           <Download size={12} />
           Export CSV
         </button>
+        {canViewAllProperties && (
+          <button
+            type="button"
+            onClick={() => setAllProperties((current) => !current)}
+            aria-pressed={allProperties}
+            disabled={loadingReport}
+            className={`flex items-center gap-2 px-4 h-9 border rounded-sm text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${allProperties
+              ? "bg-accent/10 border-accent/60 text-accent"
+              : "bg-secondary border-border text-muted-foreground hover:text-foreground"
+              }`}
+          >
+            <Building2 size={12} />
+            {allProperties ? "View This Property Only" : "View All Properties"}
+          </button>
+        )}
       </div>
 
       {/* Summary */}
@@ -991,6 +892,60 @@ export function ReportsView({
           ))}
         </div>
       </div>
+
+      {/* Property breakdown (all-properties report only) */}
+      {showAllProperties && propertyBreakdown.length > 0 && (
+        <div>
+          <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider mb-3">
+            By Property
+          </p>
+
+          <div className="rounded border border-border overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-secondary/40 text-xs text-muted-foreground">
+                  <th className="text-left px-4 py-2.5 font-medium">Property</th>
+                  <th className="text-right px-4 py-2.5 font-medium">Players</th>
+                  <th className="text-right px-4 py-2.5 font-medium">Txns</th>
+                  <th className="text-right px-4 py-2.5 font-medium">Cash In</th>
+                  <th className="text-right px-4 py-2.5 font-medium">Cash Out</th>
+                  <th className="text-right px-4 py-2.5 font-medium">Alerts</th>
+                </tr>
+              </thead>
+              <tbody>
+                {propertyBreakdown.map((property) => (
+                  <tr
+                    key={property.propertyId}
+                    className="border-b border-border last:border-0"
+                  >
+                    <td className="px-4 py-2.5 font-semibold whitespace-nowrap">
+                      {property.propertyName}
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-mono text-xs">
+                      {property.players}
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-mono text-xs">
+                      {property.transactions}
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-mono text-xs">
+                      {fmt(property.totalIncoming)}
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-mono text-xs">
+                      {fmt(property.totalOutgoing)}
+                    </td>
+                    <td
+                      className={`px-4 py-2.5 text-right font-mono text-xs ${property.complianceAlerts > 0 ? "text-emerald-400" : ""
+                        }`}
+                    >
+                      {property.complianceAlerts}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Detail table */}
       <ReportsViewTable
@@ -1042,12 +997,13 @@ export function ReportsView({
         setPageSize={setPageSize}
         loadingReport={loadingReport}
         openTransactionDetails={openTransactionDetails}
+        showProperty={showAllProperties}
       />
 
       {selectedTransaction && (
         <SelectedTransactionModal
           selectedTransaction={selectedTransaction}
-          selectedTransactionLogs={selectedTransactionLogs as TransactionLog[]}
+          selectedTransactionLogs={selectedTransactionLogs}
           selectedTransactionTotals={selectedTransactionTotals}
           loadingTransactionLogs={loadingTransactionLogs}
           cashiers={cashiers}

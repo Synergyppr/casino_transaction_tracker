@@ -4,8 +4,6 @@ import { fmt } from "@/app/lib/utils";
 import {
   formatLogDateTime,
   formatLogValue,
-  getChangedFieldRows,
-  getChangedLogValues,
   TransactionLog,
 } from "../ReportsView";
 
@@ -14,7 +12,6 @@ const SelectedTransactionModal = ({
   selectedTransactionLogs,
   selectedTransactionTotals,
   loadingTransactionLogs,
-  cashiers,
   closeTransactionDetails,
 }: {
   selectedTransaction: {
@@ -102,19 +99,11 @@ const SelectedTransactionModal = ({
           </div>
         ) : (
           selectedTransactionLogs.map((log) => {
-            const changedValues = getChangedLogValues(
-              log.oldValuesJson,
-              log.newValuesJson
+            const changedFieldRows = log.attributes ?? [];
+            const amountAttr = changedFieldRows.find(
+              (attr) => attr.attribute.toLowerCase() === "amount"
             );
-            const changedFieldRows = getChangedFieldRows(
-              changedValues.oldValues,
-              changedValues.newValues
-            );
-            const values = changedValues.newValues;
-            const changedBy =
-              cashiers?.find((c) => c.id === log.changedByCashierId)?.name ??
-              log.changedByCashierId ??
-              "Unknown";
+            const changedBy = log.changedBy || "Unknown";
 
             return (
               <div
@@ -127,26 +116,15 @@ const SelectedTransactionModal = ({
                       {log.action}
                     </span>
 
-                    {values.direction && (
-                      <span
-                        className={`rounded-sm px-1.5 py-0.5 text-xs font-mono ${values.direction === "incoming"
-                            ? "bg-sky-500/10 text-sky-400"
-                            : "bg-rose-500/10 text-rose-400"
-                          }`}
-                      >
-                        {values.direction === "incoming" ? "IN" : "OUT"}
-                      </span>
-                    )}
-
-                    {typeof values.amount === "number" && (
+                    {amountAttr?.newValue && (
                       <span className="text-xs font-mono text-foreground">
-                        {fmt(values.amount)}
+                        {formatLogValue(amountAttr.attribute, amountAttr.newValue)}
                       </span>
                     )}
                   </div>
 
                   <span className="text-xs text-muted-foreground font-mono">
-                    {formatLogDateTime(log.createdAtUtc)}
+                    {formatLogDateTime(log.changedAt || log.changedAtUtc)}
                   </span>
                 </div>
 
@@ -180,25 +158,33 @@ const SelectedTransactionModal = ({
                     ) : (
                       <div className="overflow-hidden rounded-sm border border-border">
                         {changedFieldRows.map((field, index) => {
-                          const oldDisplayValue = field.hasOldValue
-                            ? formatLogValue(field.key, field.oldValue)
-                            : "Not set";
-                          const newDisplayValue = field.hasNewValue
-                            ? formatLogValue(field.key, field.newValue)
-                            : "Removed";
+                          const hasOldValue = field.oldValue !== null;
+                          const oldDisplayValue = formatLogValue(
+                            field.attribute,
+                            field.oldValue
+                          );
+                          const newDisplayValue =
+                            field.newValue === null
+                              ? "Removed"
+                              : formatLogValue(field.attribute, field.newValue);
 
                           return (
                             <div
-                              key={field.key}
+                              key={`${field.attribute}-${index}`}
                               className={`p-3 ${index !== changedFieldRows.length - 1
                                   ? "border-b border-border"
                                   : ""
                                 }`}
                             >
                               <p className="mb-2 text-xs font-semibold text-foreground">
-                                {field.label}
+                                {field.attribute}
                               </p>
 
+                              {!hasOldValue ? (
+                                <p className="wrap-break-word whitespace-pre-wrap text-xs font-medium text-foreground">
+                                  {newDisplayValue}
+                                </p>
+                              ) : (
                               <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-stretch">
                                 <div className="min-w-0 rounded-sm border border-rose-500/20 bg-rose-500/5 p-2.5">
                                   <p className="mb-1 text-[9px] font-mono uppercase tracking-wider text-rose-400">
@@ -230,6 +216,7 @@ const SelectedTransactionModal = ({
                                   </p>
                                 </div>
                               </div>
+                              )}
                             </div>
                           );
                         })}
@@ -243,9 +230,9 @@ const SelectedTransactionModal = ({
                       <span className="text-foreground">{changedBy}</span>
                     </p>
 
-                    {values.category && (
+                    {log.recordName && (
                       <p className="text-xs text-muted-foreground">
-                        {values.category}
+                        {log.recordName}
                       </p>
                     )}
                   </div>

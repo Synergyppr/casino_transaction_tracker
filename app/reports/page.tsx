@@ -252,6 +252,7 @@ export default function Home() {
           setEndDate={setEndDate}
           report={report}
           setReport={setReport}
+          canViewAllProperties={user?.role === "manager"}
         />
       </main>
     </div>

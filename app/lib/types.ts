@@ -41,6 +41,9 @@ export interface Transaction {
   status?: string;
   referenceNumber?: string;
   date?: string;
+  propertyId?: string;
+  propertyName?: string;
+  transactionLogs?: Logs[];
 }
 
 export interface CreatePlayer {
@@ -87,7 +90,6 @@ export interface ApiResponse<T> {
 
 export interface ApiCashier {
   propertyIds?: string[];
-  properties?: {id: string; name?: string}[];
   id: string;
   firstName: string;
   lastName: string;
@@ -118,12 +120,10 @@ export interface ApiPlayer {
   createdBy: string | null;
   phone: string | null;
   active: boolean;
-  direction?: string | null;
 }
 
 // Create Transaction Request
 export interface ApiTransactionSummary {
-  createdBy?: string;
   id: string;
   direction: string;
   category: string;
@@ -136,6 +136,9 @@ export interface ApiTransactionSummary {
   referenceNumber?: string;
   notes?: string | null;
   createdByCashierId?: string;
+  propertyId?: string;
+  propertyName?: string;
+  transactionLogs?: Logs[];
 }
 
 export interface ApiTransaction extends ApiTransactionSummary {
@@ -160,12 +163,25 @@ export interface ApiTransaction extends ApiTransactionSummary {
   lockedByCashierId: string | null;
   correctionOfTransactionId: string | null;
   correlationId: string;
-  createdBy?: string;
   date?: string;
+}
+
+export interface ApiPropertyBreakdown {
+  propertyId: string;
+  propertyName: string;
+  players: number;
+  transactions: number;
+  totalIncoming: number;
+  totalOutgoing: number;
+  net: number;
+  complianceAlerts: number;
 }
 
 export interface ApiDailyReport {
   businessDate?: string;
+  propertyId?: string | null;
+  allProperties?: boolean;
+  propertyBreakdown?: ApiPropertyBreakdown[];
   players: number;
   transactions: number;
   totalIncoming: number;
@@ -207,15 +223,22 @@ export interface EditDraft {
 
 // ---------------  Logs  ---------------
 
+export interface LogAttribute {
+  attribute: string;
+  oldValue: string | null;
+  newValue: string | null;
+}
+
 export interface Logs {
   id: number;
-  transactionId: string;
+  recordName: string;
   action: string;
-  oldValuesJson: string;
-  newValuesJson: string;
   reason: string;
-  changedByCashierId: string;
+  changedBy: string;
+  changedAtUtc: string;
+  changedAt: string;
   createdAtUtc: string;
+  attributes: LogAttribute[];
 }
 
 export interface LoginCashierRequest {
@@ -254,6 +277,8 @@ export interface CreateTransactionRequest {
 export interface UpdateTransactionRequest extends Partial<Pick<CreateTransactionRequest, "direction" | "category" | "amount" | "notes">> {
   id: string;
   updatedByCashierId: string;
+  /** Session property, so the backend can verify ownership. */
+  propertyId?: string;
   status?: string;
   reason?: string;
 }
@@ -265,7 +290,8 @@ export interface LockTransactionRequest {
 }
 
 export interface DailyReportRequest {
-  propertyId: string;
+  /** Omit to get the report across all properties (managers only). */
+  propertyId?: string;
   startDateTime: string;
   endDateTime: string;
   direction?: string;

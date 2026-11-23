@@ -8,12 +8,14 @@ function escapeCsv(value: unknown) {
 
 export function exportTransactionsToCsv(
   rows: TransactionRow[],
-  selectedDate: string
+  selectedDate: string,
+  includeProperty = false
 ) {
   const headers = [
     "Date",
     "Time",
     "Player",
+    ...(includeProperty ? ["Property"] : []),
     // "Player Number",
     "Direction",
     "Category",
@@ -25,6 +27,7 @@ export function exportTransactionsToCsv(
     row.date,
     row.time,
     row.playerName,
+    ...(includeProperty ? [row.propertyName || ""] : []),
     // row.gamerNumber || "",
     row.direction,
     row.category || "Other",

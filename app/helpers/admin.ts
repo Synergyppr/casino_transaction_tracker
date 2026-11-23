@@ -81,6 +81,7 @@ export async function createCashierFromDraft(draft: AddCashierDraft) {
     lastName: draft.lastName.trim(),
     pin: draft.pin,
     role: draft.role,
+    active: true,
     employeeCode: draft.employeeCode.trim() || undefined,
     phone: draft.phone.trim() || undefined,
   });

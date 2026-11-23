@@ -7,11 +7,13 @@ import { fmt } from "../lib/utils";
 
 export function PlayerTransactionsSection({
   player,
-  openTxn
+  openTxn,
+  canEdit = () => true,
 }: {
   player: Player;
   openTxn: (player: Player,
     transaction: Transaction) => void
+  canEdit?: (transaction: Transaction) => boolean;
 }) {
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -82,6 +84,11 @@ export function PlayerTransactionsSection({
               <th
                 role="columnheader"
                 className="p-2 text-left">
+                Property
+              </th>
+              <th
+                role="columnheader"
+                className="p-2 text-left">
                 Direction
               </th>
               <th
@@ -102,7 +109,9 @@ export function PlayerTransactionsSection({
             </tr>
           </thead>
           <tbody role="rowgroup">
-            {player.transactions.map(transaction =>
+            {player.transactions.map(transaction => {
+              const editable = canEdit(transaction);
+              return (
               <tr role="row" key={transaction.id} className="border-t border-border">
                 <td role="cell" data-label="Date & Time" className="p-2">
                   <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
@@ -110,6 +119,11 @@ export function PlayerTransactionsSection({
                       max-lg:[&_.truncate]:whitespace-normal max-lg:[&_.truncate]:overflow-visible
                       max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal">
                     {transaction.date || "Not available"}</div></td>
+                <td role="cell" data-label="Property" className="p-2">
+                  <span className={editable ? "" : "text-muted-foreground"}>
+                    {transaction.propertyName || "—"}
+                  </span>
+                </td>
                 <td role="cell" data-label="Direction"
                   className={`p-2 ${transaction.direction === "incoming" ? "text-emerald-400" : "text-rose-400"}`}>
                   <div className="max-lg:min-w-0 max-lg:max-w-full max-lg:w-full max-lg:wrap-anywhere
@@ -141,9 +155,10 @@ export function PlayerTransactionsSection({
                       max-lg:[&_.whitespace-nowrap]:whitespace-normal max-lg:[&_button]:max-w-full max-lg:[&_button]:whitespace-normal">
                     <button
                       type="button"
-                      disabled={loadingId !== null}
+                      disabled={loadingId !== null || !editable}
+                      title={editable ? undefined : `Belongs to ${transaction.propertyName || "another property"}`}
                       onClick={() => void editTransaction(transaction)}
-                      className="inline-flex items-center gap-2 rounded border border-border px-3 py-2 text-xs hover:bg-accent/15 disabled:opacity-50">
+                      className="inline-flex items-center gap-2 rounded border border-border px-3 py-2 text-xs hover:bg-accent/15 disabled:opacity-50 disabled:cursor-not-allowed">
                       {loadingId === transaction.id ?
                         <Loader2 size={13} className="animate-spin"
                         /> : <FileEdit size={13} />
@@ -153,7 +168,8 @@ export function PlayerTransactionsSection({
                   </div>
                 </td>
               </tr>
-            )}
+              );
+            })}
           </tbody>
         </table>
       }
